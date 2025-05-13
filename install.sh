@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# Script for installing, updating, and configuring MarzGozir bot
+# Script for installing, updating, and configuring MarzGozir bot in /opt/mahyar on Ubuntu
 
 # Colors for output
 RED='\033[0;31m'
@@ -8,85 +8,111 @@ GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 NC='\033[0m' # No Color
 
+# Check if running on Ubuntu
+if ! lsb_release -a 2>/dev/null | grep -q "Ubuntu"; then
+    echo -e "${RED}This script is designed to run only on Ubuntu servers.${NC}"
+    exit 1
+fi
+
 # Check if script is run with sudo
 if [ "$EUID" -ne 0 ]; then
     echo -e "${RED}Please run this script as root (use sudo).${NC}"
     exit 1
 fi
 
-# Check if git is installed
-if ! command -v git &> /dev/null; then
-    echo -e "${YELLOW}Git is not installed. Installing git...${NC}"
-    apt-get update && apt-get install -y git
-fi
-
-# Check if python3 and pip are installed
-if ! command -v python3 &> /dev/null; then
-    echo -e "${YELLOW}Python3 is not installed. Installing python3...${NC}"
-    apt-get install -y python3 python3-pip
-fi
+# Check and install prerequisites
+install_prerequisites() {
+    echo -e "${YELLOW}Checking and installing prerequisites...${NC}"
+    apt-get update
+    apt-get install -y git python3 python3-pip python3-venv
+}
 
 # Function to install the bot
 install_bot() {
-    echo -e "${GREEN}Installing MarzGozir bot...${NC}"
+    echo -e "${GREEN}Installing MarzGozir bot in /opt/mahyar...${NC}"
+    
+    # Create directory if it doesn't exist
+    mkdir -p /opt/mahyar
+    cd /opt/mahyar || exit
     
     # Clone the repository if not already cloned
     if [ ! -d "MarzGozir" ]; then
         git clone https://github.com/mahyyar/MarzGozir.git
+    else
+        echo -e "${YELLOW}MarzGozir directory already exists. Skipping clone.${NC}"
     fi
     
     cd MarzGozir || exit
     
-    # Install dependencies
-    pip3 install -r requirements.txt
+    # Create and activate virtual environment
+    python3 -m venv venv
+    source venv/bin/activate
     
-    # Check if config file exists, if not create a template
-    if [ ! -f "config.py" ]; then
-        echo -e "${YELLOW}Creating config.py template...${NC}"
-        cat << EOF > config.py
+    # Install dependencies
+    pip install --upgrade pip
+    pip install -r requirements.txt
+    
+    # Create bot_config.py if it doesn't exist
+    if [ ! -f "bot_config.py" ]; then
+        echo -e "${YELLOW}Creating bot_config.py template...${NC}"
+        cat << EOF > bot_config.py
 # Configuration file for MarzGozir bot
 BOT_TOKEN = "YOUR_BOT_TOKEN_HERE"
-ADMIN_ID = "YOUR_ADMIN_ID_HERE"
+ADMIN_ID = 0  # Replace with your numeric admin ID
 EOF
     fi
     
-    echo -e "${GREEN}Bot installed successfully. Please edit config.py with your BOT_TOKEN and ADMIN_ID.${NC}"
+    # Set proper permissions
+    chown -R root:root /opt/mahyar
+    chmod -R 755 /opt/mahyar
+    
+    echo -e "${GREEN}Bot installed successfully. Please edit /opt/mahyar/MarzGozir/bot_config.py with your BOT_TOKEN and ADMIN_ID.${NC}"
 }
 
 # Function to update the bot
 update_bot() {
     echo -e "${GREEN}Updating MarzGozir bot...${NC}"
     
-    if [ ! -d "MarzGozir" ]; then
+    if [ ! -d "/opt/mahyar/MarzGozir" ]; then
         echo -e "${RED}Bot is not installed. Please install it first.${NC}"
         exit 1
     fi
     
-    cd MarzGozir || exit
+    cd /opt/mahyar/MarzGozir || exit
     git pull origin main
-    pip3 install -r requirements.txt --upgrade
+    
+    # Activate virtual environment and update dependencies
+    source venv/bin/activate
+    pip install --upgrade pip
+    pip install -r requirements.txt --upgrade
     
     echo -e "${GREEN}Bot updated successfully.${NC}"
 }
 
 # Function to edit token and ID
 edit_config() {
-    echo -e "${GREEN}Editing BOT_TOKEN and ADMIN_ID...${NC}"
+    echo -e "${GREEN}Editing BOT_TOKEN and ADMIN_ID in bot_config.py...${NC}"
     
-    if [ ! -f "MarzGozir/config.py" ]; then
-        echo -e "${RED}config.py not found. Please install the bot first.${NC}"
+    if [ ! -f "/opt/mahyar/MarzGozir/bot_config.py" ]; then
+        echo -e "${RED}bot_config.py not found. Please install the bot first.${NC}"
         exit 1
     fi
     
     # Prompt for new token and ID
     read -p "Enter your Bot Token: " bot_token
-    read -p "Enter your Admin ID: " admin_id
+    read -p "Enter your numeric Admin ID: " admin_id
     
-    # Update config.py
-    sed -i "s/BOT_TOKEN = .*/BOT_TOKEN = \"$bot_token\"/" MarzGozir/config.py
-    sed -i "s/ADMIN_ID = .*/ADMIN_ID = \"$admin_id\"/" MarzGozir/config.py
+    # Validate admin_id is numeric
+    if ! [[ "$admin_id" =~ ^[0-9]+$ ]]; then
+        echo -e "${RED}Admin ID must be a numeric value.${NC}"
+        exit 1
+    fi
     
-    echo -e "${GREEN}Configuration updated successfully.${NC}"
+    # Update bot_config.py
+    sed -i "s/BOT_TOKEN = .*/BOT_TOKEN = \"$bot_token\"/" /opt/mahyar/MarzGozir/bot_config.py
+    sed -i "s/ADMIN_ID = .*/ADMIN_ID = $admin_id/" /opt/mahyar/MarzGozir/bot_config.py
+    
+    echo -e "${GREEN}Configuration updated successfully in /opt/mahyar/MarzGozir/bot_config.py.${NC}"
 }
 
 # Main menu
@@ -100,6 +126,7 @@ while true; do
     
     case $choice in
         1)
+            install_prerequisites
             install_bot
             ;;
         2)
