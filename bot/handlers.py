@@ -1,5 +1,4 @@
-import asyncio
-import logging
+import re
 import asyncio
 import logging
 import uuid
@@ -679,14 +678,25 @@ async def message_handler(message: types.Message, state: FSMContext, bot: Bot):
             message = await bot.send_message(chat_id, f"❌ خطا: {str(e)}")
             await state.update_data(login_messages=[message.message_id])
             await state.clear()
-
 async def check_server_availability(url: str) -> bool:
     try:
-        hostname = url.split("://")[1].split("/")[0]
-        socket.getaddrinfo(hostname, 443)
+        url_pattern = re.match(r"(https?://[^/:]+)(?::(\d+))?/?", url)
+        if not url_pattern:
+            logger.error(f"Invalid URL format: {url}")
+            return False
+
+        hostname = url_pattern.group(1).split("://")[1]
+        port = int(url_pattern.group(2)) if url_pattern.group(2) else 443  # پیش‌فرض پورت 443
+
+        socket.getaddrinfo(hostname, port)
+        
         async with aiohttp.ClientSession() as session:
             async with session.get(url, timeout=5, ssl=True) as response:
                 return response.status < 500
     except (socket.gaierror, aiohttp.ClientConnectorError, asyncio.TimeoutError) as e:
         logger.error(f"Server check failed for {url}: {str(e)}")
+        return False
+    except Exception as e:
+        logger.error(f"Unexpected error checking server {url}: {str(e)}")
+        return False
         return False
