@@ -1,28 +1,16 @@
-# چرا مرزگُذیر ؟ 😎
+# MarzGozir
 
-مرزگذیر به ادمین ها و شما کمک میکنه که👇
+**یک ربات مختص برای افرادی که میخوام در کنار فروش پنل ، یک ربات همه کاره هم نیز به مشتری ارائه دهند .**
+## Installation
 
-• افزودن و مدیریت پنل‌های مرزبان
-
-• ایجاد، جستجو و حذف کاربران
-
-• مدیریت کانفیگ‌ها، حجم و زمان انقضا
-
-• مدیریت ادمین‌ها
-
-• اضافه و حذف کردن ادمین
-
-• سازگاری با پنل‌های sudo و non-sudo
-
-• دریافت اطلاعات کاربر، شامل (لینک پنل، یوزرنیم و رمز پنل، تعداد کاربران و ...)
-
-• متصل به Apiپنل مرزبان 
-
-• قابلیت تغییر حجم ، زمان ، خاموش و روشن کردن یوزر و دریافت لینک جدید .
-
-
-# اسکریپت نصب
+To install MarzGozir, use the following command:
 
 ```bash
 curl -o install.sh -L https://raw.githubusercontent.com/imahiar/marz-maneger/main/install.sh && bash install.sh
+```
+## Donations
+If you like MarzGozir and would like to support further development, consider making a donation:
 
+- **TRX (TRX):** `TUB6NQYGjBLF6y2zUq9bo8isEZtB7Va9BG`
+
+- **TON:** `8191776799:AAFQkabjF0OsSr9-_bVwWp9jLlAINiE2d5c`
