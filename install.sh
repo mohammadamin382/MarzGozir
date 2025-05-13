@@ -4,7 +4,7 @@
 # نصب پیش‌نیازها، قرار دادن سورس در /opt/MarzGozir، اجرای پروژه با Docker
 # حفظ قابلیت‌های CLI: نصب بات، آپدیت بات، حذف بات، ویرایش توکن و آیدی، خروج
 # دریافت توکن و آیدی از کاربر و ذخیره در bot_config.py
-# اصلاح خطای نصب Docker Compose و مشکل کاربر docker
+# اصلاح خطای نصب Docker Compose با روش مقاوم‌تر
 
 # رنگ‌ها برای خروجی
 RED='\033[0;31m'
@@ -62,7 +62,7 @@ fi
 # 3. به‌روزرسانی سیستم و نصب ابزارهای اولیه
 echo -e "${GREEN}به‌روزرسانی سیستم و نصب ابزارها...${NC}"
 apt update && apt upgrade -y
-apt install -y curl wget git python3 python3-pip
+apt install -y curl wget git python3 python3-pip python3-venv
 check_error "نصب ابزارهای اولیه ناموفق بود"
 
 # 4. نصب Docker
@@ -86,18 +86,36 @@ fi
 usermod -aG docker "$USER_NAME"
 check_error "افزودن کاربر $USER_NAME به گروه docker ناموفق بود"
 
-# 5. نصب Docker Compose (با استفاده از باینری)
+# 5. نصب Docker Compose
 echo -e "${GREEN}نصب Docker Compose...${NC}"
 if ! command -v docker-compose &> /dev/null; then
-  DOCKER_COMPOSE_VERSION="2.29.2" # نسخه پایدار
-  curl -L "https://github.com/docker/compose/releases/download/v${DOCKER_COMPOSE_VERSION}/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose
-  check_error "دانلود Docker Compose ناموفق بود"
-  chmod +x /usr/local/bin/docker-compose
-  ln -sf /usr/local/bin/docker-compose /usr/bin/docker-compose
-  check_error "نصب Docker Compose ناموفق بود"
+  # تلاش برای نصب از طریق باینری
+  DOCKER_COMPOSE_VERSION="2.29.7" # نسخه به‌روز
+  ARCH=$(uname -m)
+  case $ARCH in
+    x86_64) ARCH="x86_64" ;;
+    aarch64) ARCH="aarch64" ;;
+    *) echo -e "${RED}معماری $ARCH پشتیبانی نمی‌شود!${NC}"; exit 1 ;;
+  esac
+  curl -L "https://github.com/docker/compose/releases/download/v${DOCKER_COMPOSE_VERSION}/docker-compose-$(uname -s)-${ARCH}" -o /usr/local/bin/docker-compose
+  if [ $? -ne 0 ]; then
+    echo -e "${YELLOW}دانلود باینری Docker Compose ناموفق بود. تلاش برای نصب از apt...${NC}"
+    apt install -y docker-compose
+    check_error "نصب Docker Compose از apt ناموفق بود"
+  else
+    chmod +x /usr/local/bin/docker-compose
+    ln -sf /usr/local/bin/docker-compose /usr/bin/docker-compose
+    check_error "نصب Docker Compose ناموفق بود"
+  fi
 else
   echo -e "${YELLOW}Docker Compose قبلاً نصب شده است${NC}"
 fi
+# بررسی نصب موفقیت‌آمیز
+if ! command -v docker-compose &> /dev/null; then
+  echo -e "${RED}Docker Compose نصب نشد!${NC}"
+  exit 1
+fi
+echo -e "${GREEN}نسخه Docker Compose: $(docker-compose --version)${NC}"
 
 # 6. ایجاد پوشه و کلون کردن پروژه در /opt/MarzGozir
 echo -e "${GREEN}کلون کردن MarzGozir در /opt/MarzGozir...${NC}"
@@ -118,10 +136,14 @@ ADMIN_ID = "$TELEGRAM_ADMIN_ID"
 EOL
 check_error "ایجاد فایل bot_config.py ناموفق بود"
 
-# 8. نصب وابستگی‌های پایتون
-echo -e "${GREEN}نصب وابستگی‌های پایتون...${NC}"
-pip3 install -r requirements.txt --break-system-packages
+# 8. نصب وابستگی‌های پایتون در محیط مجازی
+echo -e "${GREEN}نصب وابستگی‌های پایتون در محیط مجازی...${NC}"
+python3 -m venv venv
+source venv/bin/activate
+pip install --upgrade pip
+pip install -r requirements.txt
 check_error "نصب وابستگی‌ها ناموفق بود"
+deactivate
 
 # 9. ایجاد فایل .env نمونه
 echo -e "${GREEN}ایجاد فایل .env نمونه...${NC}"
@@ -143,8 +165,10 @@ fi
 
 # 10. اجرای مهاجرت‌های پایگاه داده
 echo -e "${GREEN}اجرای مهاجرت‌های پایگاه داده...${NC}"
+source venv/bin/activate
 python3 manage.py migrate
 check_error "اجرای مهاجرت‌ها ناموفق بود"
+deactivate
 
 # 11. اجرای پروژه با Docker Compose
 echo -e "${GREEN}اجرای پروژه با Docker Compose...${NC}"
@@ -156,7 +180,9 @@ echo -e "${GREEN}تنظیم CLI پروژه...${NC}"
 if [ -f "marzban-cli.py" ]; then
   ln -s /opt/MarzGozir/marzban-cli.py /usr/bin/marzban-cli
   chmod +x /usr/bin/marzban-cli
+  source venv/bin/activate
   marzban-cli completion install
+  deactivate
   echo -e "${GREEN}CLI نصب شد. می‌توانید از دستورات زیر استفاده کنید:${NC}"
   echo -e "  - نصب بات: marzban-cli bot install"
   echo -e "  - آپدیت بات: marzban-cli bot update"
