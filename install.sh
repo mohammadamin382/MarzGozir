@@ -36,8 +36,10 @@ check_prerequisites() {
 
 # تابع برای گرفتن توکن و آیدی
 get_token_and_id() {
-    read -p "$(echo -e ${YELLOW}لطفاً توکن ربات تلگرام را وارد کنید:${NC} )" BOT_TOKEN
-    read -p "$(echo -e ${YELLOW}لطفاً آیدی عددی ادمین را وارد کنید (فقط عدد، بدون براکت):${NC} )" ADMIN_ID
+    echo -e "${YELLOW}لطفاً توکن ربات تلگرام را وارد کنید:${NC}"
+    read BOT_TOKEN
+    echo -e "${YELLOW}لطفاً آیدی عددی ادمین را وارد کنید (فقط عدد، بدون براکت):${NC}"
+    read ADMIN_ID
     if [ -z "$BOT_TOKEN" ] || [ -z "$ADMIN_ID" ]; then
         echo -e "${YELLOW}خطا: توکن ربات و آیدی ادمین نمی‌توانند خالی باشند!${NC}"
         return 1
