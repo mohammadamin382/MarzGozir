@@ -1,5 +1,30 @@
 #!/bin/bash
 
+# Function to check and install prerequisites
+install_prerequisites() {
+    echo "Checking and installing prerequisites..."
+    local packages=("python3" "python3-pip" "python3-venv" "git")
+    local missing=()
+
+    # Check for missing packages
+    for pkg in "${packages[@]}"; do
+        if ! command -v "$pkg" &> /dev/null; then
+            missing+=("$pkg")
+        fi
+    done
+
+    # Install missing packages
+    if [ ${#missing[@]} -ne 0 ]; then
+        echo "Installing missing packages: ${missing[*]}"
+        sudo apt update
+        for pkg in "${missing[@]}"; do
+            sudo apt install -y "$pkg"
+        done
+    else
+        echo "All prerequisites are already installed."
+    fi
+}
+
 # Function to display the menu
 show_menu() {
     clear
@@ -19,8 +44,7 @@ show_menu() {
 install_bot() {
     echo "Starting bot installation..."
     # Install prerequisites
-    sudo apt update
-    sudo apt install -y python3 python3-pip python3-venv git
+    install_prerequisites
 
     # Create directory and clone repository
     sudo mkdir -p /opt/MahYaR
