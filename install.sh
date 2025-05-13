@@ -47,7 +47,7 @@ if ! id "$USER_NAME" >/dev/null 2>&1; then
   exit 1
 fi
 
-echo -e "${GREEN}Enter domain for SSL (e.g., your_domain.com):${NC}"
+echo -e "${GREEN}Enter domain for SSL and panel (e.g., your_domain.com or panel.your_domain.com):${NC}"
 read -p "Domain: " DOMAIN
 if [ -z "$DOMAIN" ]; then
   echo -e "${RED}Domain cannot be empty!${NC}"
@@ -149,7 +149,7 @@ if [ ! -f ".env.example" ]; then
 ADMIN_USERNAME=admin
 ADMIN_PASSWORD=your_secure_password
 DOMAIN=your_domain.com
-SSL(enabled)=false
+SSL_ENABLED=false
 DATABASE_URL=sqlite:///db.sqlite3
 SECRET_KEY=your_django_secret_key
 EOL
@@ -161,8 +161,11 @@ sed -i "s/your_django_secret_key/$(openssl rand -hex 32)/" .env
 echo -e "${YELLOW}.env file created. Edit /opt/MarzGozir/.env for additional settings.${NC}"
 
 echo -e "${GREEN}Setting up SSL with Let's Encrypt...${NC}"
-certbot --nginx -d "$DOMAIN" --non-interactive --agree-tos --email admin@$DOMAIN
-check_error "Failed to set up SSL"
+certbot --nginx -d "$DOMAIN" --non-interactive --agree-tos --email "admin@$DOMAIN"
+if [ $? -ne 0 ]; then
+  echo -e "${YELLOW}SSL setup failed. Continuing without SSL...${NC}"
+  sed -i "s/SSL_ENABLED=true/SSL_ENABLED=false/" .env
+fi
 
 echo -e "${GREEN}Creating default docker-compose.yml...${NC}"
 if [ ! -f "docker-compose.yml" ]; then
@@ -174,19 +177,11 @@ services:
     volumes:
       - .:/app
     working_dir: /app
-    command: bash -c "pip install -r requirements.txt && gunicorn --bind 0.0.0.0:8000 your_project.wsgi"
+    command: bash -c "pip install django requests python-telegram-bot gunicorn && gunicorn --bind 0.0.0.0:8000 your_project.wsgi"
     ports:
       - "8000:8000"
     environment:
       - PYTHONUNBUFFERED=1
-    depends_on:
-      - db
-  db:
-    image: sqlite:latest
-    volumes:
-      - db_data:/var/lib/sqlite
-volumes:
-  db_data:
 EOL
 fi
 
@@ -230,4 +225,4 @@ echo -e "- Service management:"
 echo -e "  Stop: cd /opt/MarzGozir && docker-compose down"
 echo -e "  Restart: cd /opt/MarzGozir && docker-compose up -d"
 echo -e "- CLI commands: marzban-cli --help"
-echo -e "${YELLOW}SSL is enabled. Ensure DNS is configured for $DOMAIN.${NC}"
+echo -e "${YELLOW}Ensure DNS is configured for $DOMAIN. If SSL failed, dashboard is at http://$DOMAIN:8000/dashboard/.${NC}"
