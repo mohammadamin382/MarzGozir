@@ -28,7 +28,7 @@ curl -o install.sh -L https://raw.githubusercontent.com/imahiar/marz-maneger/mai
 
 ~~~~~~~~~~~~~~~~~~~~~~~~~
 
-**donation**
+# **donation**
 
 **TRX (TRON)** : `TUB6NQYGjBLF6y2zUq9bo8isEZtB7Va9BG`
 **TON** : `UQDiedJl7pWpTA8HCXsrIHcNX9GrEma5xBKp3Xu7plLN_9oY`
