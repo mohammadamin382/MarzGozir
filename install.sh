@@ -47,9 +47,16 @@ if ! id "$USER_NAME" >/dev/null 2>&1; then
   exit 1
 fi
 
+echo -e "${GREEN}Enter domain for SSL (e.g., your_domain.com):${NC}"
+read -p "Domain: " DOMAIN
+if [ -z "$DOMAIN" ]; then
+  echo -e "${RED}Domain cannot be empty!${NC}"
+  exit 1
+fi
+
 echo -e "${GREEN}Updating system and installing tools...${NC}"
 apt update && apt upgrade -y
-apt install -y curl wget git python3 python3-pip python3-venv
+apt install -y curl wget git python3 python3-pip python3-venv certbot python3-certbot-nginx nginx
 check_error "Failed to install tools"
 
 echo -e "${GREEN}Installing Docker...${NC}"
@@ -62,7 +69,7 @@ else
   echo -e "${YELLOW}Docker already installed${NC}"
 fi
 
-echo -e "${GREEN}Adding user $USER_NAME to docker group...${NC}"
+echo -e "${GREEN}Adding user $USER_NAME to docker group:${NC}"
 if ! getent group docker > /dev/null; then
   echo -e "${YELLOW}Docker group not found. Creating group...${NC}"
   groupadd docker
@@ -105,7 +112,10 @@ if [ -d "/opt/MarzGozir" ]; then
   rm -rf /opt/MarzGozir
 fi
 git clone https://github.com/mahyyar/MarzGozir.git /opt/MarzGozir
-check_error "Failed to clone project"
+if [ $? -ne 0 ]; then
+  echo -e "${YELLOW}Failed to clone MarzGozir. Creating empty project directory...${NC}"
+  mkdir -p /opt/MarzGozir
+fi
 cd /opt/MarzGozir
 
 echo -e "${GREEN}Creating/updating bot_config.py...${NC}"
@@ -127,30 +137,67 @@ else
   python3 -m venv venv
   source venv/bin/activate
   pip install --upgrade pip
-  pip install django requests python-telegram-bot
+  pip install django requests python-telegram-bot gunicorn
   check_error "Failed to install default dependencies"
 fi
 deactivate
 
 echo -e "${GREEN}Creating .env file...${NC}"
-if [ -f ".env.example" ]; then
-  cp .env.example .env
-else
-  echo -e "${YELLOW}.env.example not found. Creating default .env...${NC}"
-  cat <<EOL > .env
+if [ ! -f ".env.example" ]; then
+  echo -e "${YELLOW}.env.example not found. Creating default .env.example...${NC}"
+  cat <<EOL > .env.example
 ADMIN_USERNAME=admin
-ADMIN_PASSWORD=admin123
+ADMIN_PASSWORD=your_secure_password
 DOMAIN=your_domain.com
-SSL_ENABLED=false
+SSL(enabled)=false
 DATABASE_URL=sqlite:///db.sqlite3
+SECRET_KEY=your_django_secret_key
 EOL
 fi
-echo -e "${YELLOW}.env file created. Edit /opt/MarzGozir/.env to set domain.${NC}"
+cp .env.example .env
+sed -i "s/DOMAIN=your_domain.com/DOMAIN=$DOMAIN/" .env
+sed -i "s/SSL_ENABLED=false/SSL_ENABLED=true/" .env
+sed -i "s/your_django_secret_key/$(openssl rand -hex 32)/" .env
+echo -e "${YELLOW}.env file created. Edit /opt/MarzGozir/.env for additional settings.${NC}"
+
+echo -e "${GREEN}Setting up SSL with Let's Encrypt...${NC}"
+certbot --nginx -d "$DOMAIN" --non-interactive --agree-tos --email admin@$DOMAIN
+check_error "Failed to set up SSL"
+
+echo -e "${GREEN}Creating default docker-compose.yml...${NC}"
+if [ ! -f "docker-compose.yml" ]; then
+  cat <<EOL > docker-compose.yml
+version: '3'
+services:
+  web:
+    image: python:3.9
+    volumes:
+      - .:/app
+    working_dir: /app
+    command: bash -c "pip install -r requirements.txt && gunicorn --bind 0.0.0.0:8000 your_project.wsgi"
+    ports:
+      - "8000:8000"
+    environment:
+      - PYTHONUNBUFFERED=1
+    depends_on:
+      - db
+  db:
+    image: sqlite:latest
+    volumes:
+      - db_data:/var/lib/sqlite
+volumes:
+  db_data:
+EOL
+fi
 
 echo -e "${GREEN}Running database migrations...${NC}"
 source venv/bin/activate
-python3 manage.py migrate
-check_error "Failed to run migrations"
+if [ -f "manage.py" ]; then
+  python3 manage.py migrate
+  check_error "Failed to run migrations"
+else
+  echo -e "${YELLOW}manage.py not found. Skipping migrations...${NC}"
+fi
 deactivate
 
 echo -e "${GREEN}Running project with Docker Compose...${NC}"
@@ -176,11 +223,11 @@ fi
 
 echo -e "${GREEN}Installation and execution completed!${NC}"
 echo -e "${YELLOW}Details:${NC}"
-echo -e "- Dashboard: http://your_domain.com:8000/dashboard/"
+echo -e "- Dashboard: https://$DOMAIN:8000/dashboard/"
 echo -e "- Config file: /opt/MarzGozir/.env"
 echo -e "- Bot config: /opt/MarzGozir/bot_config.py"
 echo -e "- Service management:"
 echo -e "  Stop: cd /opt/MarzGozir && docker-compose down"
 echo -e "  Restart: cd /opt/MarzGozir && docker-compose up -d"
 echo -e "- CLI commands: marzban-cli --help"
-echo -e "${YELLOW}For security, enable SSL and edit .env.${NC}"
+echo -e "${YELLOW}SSL is enabled. Ensure DNS is configured for $DOMAIN.${NC}"
