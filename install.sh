@@ -170,8 +170,6 @@ EOL
     fi
     # Display information
     echo -e "${YELLOW}Installation completed successfully!${NC}"
-    echo -e "- Dashboard (if enabled): https://$DOMAIN:8000/dashboard/"
-    echo -e "${YELLOW}If SSL fails, use http://$DOMAIN:8000/dashboard/ or server IP.${NC}"
     echo -e "${YELLOW}The Telegram bot should be active. Test it with the configured token and ID.${NC}"
 }
 
