@@ -241,7 +241,7 @@ edit_token_id() {
 while true; do
     clear
     echo -e "${BLUE}=====================================${NC}"
-    echo -e "${BLUE}      MarzGozir Management Menu   v0.1.0   ${NC}"
+    echo -e "${BLUE}      MarzGozir Management Menu  v0.1.0   ${NC}"
     echo -e "${BLUE}=====================================${NC}"
     echo -e "${BLUE}1. Install Bot${NC}"
     echo -e "${BLUE}2. Update Bot${NC}"
