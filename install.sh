@@ -3,6 +3,7 @@
 # اسکریپت نصب خودکار MarzGozir
 # نصب پیش‌نیازها، قرار دادن سورس در /opt/MarzGozir، اجرای پروژه با Docker
 # حفظ قابلیت‌های CLI: نصب بات، آپدیت بات، حذف بات، ویرایش توکن و آیدی، خروج
+# اصلاح خطای افزودن کاربر به گروه docker
 
 # رنگ‌ها برای خروجی
 RED='\033[0;31m'
@@ -42,8 +43,24 @@ if ! command -v docker &> /dev/null; then
 else
   echo -e "${YELLOW}Docker قبلاً نصب شده است${NC}"
 fi
-usermod -aG docker $SUDO_USER
-check_error "افزودن کاربر به گروه docker ناموفق بود"
+
+# بررسی و افزودن کاربر به گروه docker
+echo -e "${GREEN}افزودن کاربر به گروه docker...${NC}"
+# بررسی وجود گروه docker
+if ! getent group docker > /dev/null; then
+  echo -e "${YELLOW}گروه docker وجود ندارد. ایجاد گروه...${NC}"
+  groupadd docker
+  check_error "ایجاد گروه docker ناموفق بود"
+fi
+
+# استفاده از USER_NAME به جای SUDO_USER برای اطمینان
+USER_NAME=${SUDO_USER:-$(whoami)}
+if [ -z "$USER_NAME" ] || [ "$USER_NAME" == "root" ]; then
+  echo -e "${YELLOW}کاربر معتبر یافت نشد. استفاده از کاربر پیش‌فرض (nobody)...${NC}"
+  USER_NAME="nobody"
+fi
+usermod -aG docker "$USER_NAME"
+check_error "افزودن کاربر $USER_NAME به گروه docker ناموفق بود"
 
 # 3. نصب Docker Compose
 echo -e "${GREEN}نصب Docker Compose...${NC}"
@@ -51,7 +68,7 @@ if ! command -v docker-compose &> /dev/null; then
   pip3 install docker-compose
   check_error "نصب Docker Compose ناموفق بود"
 else
-  echo -e "${YELLOW}Docker Compose قبلاً نصب شده است${NC}"
+  echo -e "${YELLOW}Docker Compose قبासاً نصب شده است${NC}"
 fi
 
 # 4. ایجاد پوشه و کلون کردن پروژه در /opt/MarzGozir
