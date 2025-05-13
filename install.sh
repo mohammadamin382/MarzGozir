@@ -1,146 +1,148 @@
 #!/bin/bash
 
-# Script for installing, updating, and configuring MarzGozir bot in /opt/mahyar on Ubuntu
-
-# Colors for output
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-NC='\033[0m' # No Color
-
-# Check if running on Ubuntu
-if ! lsb_release -a 2>/dev/null | grep -q "Ubuntu"; then
-    echo -e "${RED}This script is designed to run only on Ubuntu servers.${NC}"
-    exit 1
-fi
-
-# Check if script is run with sudo
-if [ "$EUID" -ne 0 ]; then
-    echo -e "${RED}Please run this script as root (use sudo).${NC}"
-    exit 1
-fi
-
-# Check and install prerequisites
-install_prerequisites() {
-    echo -e "${YELLOW}Checking and installing prerequisites...${NC}"
-    apt-get update
-    apt-get install -y git python3 python3-pip python3-venv
+# Function to display the menu
+show_menu() {
+    clear
+    echo "================================="
+    echo "      MarzGozir Bot Manager      "
+    echo "================================="
+    echo "1. Install Bot"
+    echo "2. Update Bot"
+    echo "3. Change Token and Admin ID"
+    echo "4. Remove Bot"
+    echo "5. Exit"
+    echo "================================="
+    echo -n "Please select an option (1-5): "
 }
 
 # Function to install the bot
 install_bot() {
-    echo -e "${GREEN}Installing MarzGozir bot in /opt/mahyar...${NC}"
-    
-    # Create directory if it doesn't exist
-    mkdir -p /opt/mahyar
-    cd /opt/mahyar || exit
-    
-    # Clone the repository if not already cloned
-    if [ ! -d "MarzGozir" ]; then
-        git clone https://github.com/mahyyar/MarzGozir.git
-    else
-        echo -e "${YELLOW}MarzGozir directory already exists. Skipping clone.${NC}"
+    echo "Starting bot installation..."
+    # Install prerequisites
+    sudo apt update
+    sudo apt install -y python3 python3-pip python3-venv git
+
+    # Create directory and clone repository
+    sudo mkdir -p /opt/MahYaR
+    cd /opt/MahYaR
+    if [ -d "MarzGozir" ]; then
+        echo "MarzGozir directory already exists. Removing and reinstalling..."
+        sudo rm -rf MarzGozir
     fi
-    
-    cd MarzGozir || exit
-    
-    # Create and activate virtual environment
+    sudo git clone https://github.com/mahyyar/MarzGozir.git
+    cd MarzGozir
+
+    # Create virtual environment and install dependencies
     python3 -m venv venv
     source venv/bin/activate
-    
-    # Install dependencies
     pip install --upgrade pip
     pip install -r requirements.txt
-    
-    # Create bot_config.py if it doesn't exist
-    if [ ! -f "bot_config.py" ]; then
-        echo -e "${YELLOW}Creating bot_config.py template...${NC}"
-        cat << EOF > bot_config.py
-# Configuration file for MarzGozir bot
-BOT_TOKEN = "YOUR_BOT_TOKEN_HERE"
-ADMIN_ID = 0  # Replace with your numeric admin ID
-EOF
-    fi
-    
-    # Set proper permissions
-    chown -R root:root /opt/mahyar
-    chmod -R 755 /opt/mahyar
-    
-    echo -e "${GREEN}Bot installed successfully. Please edit /opt/mahyar/MarzGozir/bot_config.py with your BOT_TOKEN and ADMIN_ID.${NC}"
+
+    # Get token and admin ID
+    read -p "Enter bot token: " token
+    read -p "Enter admin ID: " admin_id
+
+    # Create or update bot_config.py
+    cat > bot_config.py << EOL
+TOKEN = "$token"
+ADMIN_ID = $admin_id
+EOL
+
+    # Run the bot in the background
+    nohup python3 bot.py > bot.log 2>&1 &
+    echo "Bot installed and started successfully!"
+    read -p "Press Enter to return to the menu..."
 }
 
 # Function to update the bot
 update_bot() {
-    echo -e "${GREEN}Updating MarzGozir bot...${NC}"
-    
-    if [ ! -d "/opt/mahyar/MarzGozir" ]; then
-        echo -e "${RED}Bot is not installed. Please install it first.${NC}"
-        exit 1
+    echo "Starting bot update..."
+    if [ ! -d "/opt/MahYaR/MarzGozir" ]; then
+        echo "Bot is not installed! Please install the bot first."
+        read -p "Press Enter to return to the menu..."
+        return
     fi
-    
-    cd /opt/mahyar/MarzGozir || exit
+
+    cd /opt/MahYaR/MarzGozir
     git pull origin main
-    
-    # Activate virtual environment and update dependencies
     source venv/bin/activate
     pip install --upgrade pip
-    pip install -r requirements.txt --upgrade
-    
-    echo -e "${GREEN}Bot updated successfully.${NC}"
+    pip install -r requirements.txt
+
+    # Restart the bot
+    pkill -f "python3 bot.py"
+    nohup python3 bot.py > bot.log 2>&1 &
+    echo "Bot updated and restarted successfully!"
+    read -p "Press Enter to return to the menu..."
 }
 
-# Function to edit token and ID
-edit_config() {
-    echo -e "${GREEN}Editing BOT_TOKEN and ADMIN_ID in bot_config.py...${NC}"
-    
-    if [ ! -f "/opt/mahyar/MarzGozir/bot_config.py" ]; then
-        echo -e "${RED}bot_config.py not found. Please install the bot first.${NC}"
-        exit 1
+# Function to change token and admin ID
+change_config() {
+    if [ ! -f "/opt/MahYaR/MarzGozir/bot_config.py" ]; then
+        echo "Configuration file not found! Please install the bot first."
+        read -p "Press Enter to return to the menu..."
+        return
     fi
-    
-    # Prompt for new token and ID
-    read -p "Enter your Bot Token: " bot_token
-    read -p "Enter your numeric Admin ID: " admin_id
-    
-    # Validate admin_id is numeric
-    if ! [[ "$admin_id" =~ ^[0-9]+$ ]]; then
-        echo -e "${RED}Admin ID must be a numeric value.${NC}"
-        exit 1
-    fi
-    
+
+    read -p "Enter new bot token: " token
+    read -p "Enter new admin ID: " admin_id
+
     # Update bot_config.py
-    sed -i "s/BOT_TOKEN = .*/BOT_TOKEN = \"$bot_token\"/" /opt/mahyar/MarzGozir/bot_config.py
-    sed -i "s/ADMIN_ID = .*/ADMIN_ID = $admin_id/" /opt/mahyar/MarzGozir/bot_config.py
-    
-    echo -e "${GREEN}Configuration updated successfully in /opt/mahyar/MarzGozir/bot_config.py.${NC}"
+    cat > /opt/MahYaR/MarzGozir/bot_config.py << EOL
+TOKEN = "$token"
+ADMIN_ID = $admin_id
+EOL
+
+    # Restart the bot
+    pkill -f "python3 bot.py"
+    cd /opt/MahYaR/MarzGozir
+    source venv/bin/activate
+    nohup python3 bot.py > bot.log 2>&1 &
+    echo "Token and Admin ID updated successfully!"
+    read -p "Press Enter to return to the menu..."
 }
 
-# Main menu
+# Function to remove the bot
+remove_bot() {
+    echo "Removing bot..."
+    if [ ! -d "/opt/MahYaR" ]; then
+        echo "Bot is not installed!"
+        read -p "Press Enter to return to the menu..."
+        return
+    fi
+
+    # Stop bot processes
+    pkill -f "python3 bot.py"
+    sudo rm -rf /opt/MahYaR
+    echo "Bot removed successfully!"
+    read -p "Press Enter to return to the menu..."
+}
+
+# Main loop
 while true; do
-    echo -e "${YELLOW}=== MarzGozir Bot Setup Menu ===${NC}"
-    echo "1. Install Bot"
-    echo "2. Update Bot"
-    echo "3. Edit Token and ID"
-    echo "4. Exit"
-    read -p "Choose an option (1-4): " choice
-    
+    show_menu
+    read choice
     case $choice in
         1)
-            install_prerequisites
             install_bot
             ;;
         2)
             update_bot
             ;;
         3)
-            edit_config
+            change_config
             ;;
         4)
-            echo -e "${GREEN}Exiting...${NC}"
+            remove_bot
+            ;;
+        5)
+            clear
+            echo "Exiting..."
             exit 0
             ;;
         *)
-            echo -e "${RED}Invalid option. Please choose 1, 2, 3, or 4.${NC}"
+            echo "Invalid option! Please select a number between 1 and 5."
+            read -p "Press Enter to continue..."
             ;;
     esac
 done
