@@ -3,10 +3,8 @@
 # رنگ‌ها برای خروجی
 YELLOW='\033[1;33m'
 BLUE='\033[1;34m'
-NC='\033[0m' # بدون رنگ
+NC='\033[0m' 
 
-# متغیرها
-DOMAIN="your_domain.com" # دامنه خودتون رو جایگزین کنید
 INSTALL_DIR="/opt/marzgozir"
 CONFIG_FILE="$INSTALL_DIR/bot_config.py"
 COMPOSE_FILE="$INSTALL_DIR/docker-compose.yml"
@@ -127,19 +125,6 @@ install_bot() {
     echo -e "${YELLOW}در حال ایجاد docker-compose.yml...${NC}"
     sudo cat <<EOL > $COMPOSE_FILE
 services:
-  marzgozir:
-    image: python:3.9
-    container_name: marzgozir
-    ports:
-      - "8000:8000"
-    volumes:
-      - .:/app
-      - /var/lib/marzgozir:/var/lib/marzgozir
-    environment:
-      - MARZBAN_DOMAIN=$DOMAIN
-    working_dir: /app
-    command: bash -c "pip install --no-cache-dir -r requirements.txt && python3 main.py"
-    restart: unless-stopped
   telegram_bot:
     image: python:3.9
     container_name: marzgozir_bot
