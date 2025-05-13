@@ -5,5 +5,5 @@ services:
       context: .
       dockerfile: Dockerfile
     volumes:
-      - ./bot_data.db:/app/bot_data.db
+      - ./data:/app/data
     restart: unless-stopped
