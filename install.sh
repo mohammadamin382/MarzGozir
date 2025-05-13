@@ -1,56 +1,56 @@
 #!/bin/bash
 
-# رنگ‌ها برای خروجی
+# Colors for output
 YELLOW='\033[1;33m'
 BLUE='\033[1;34m'
 NC='\033[0m' # No Color
 
-# متغیرها
-DOMAIN="your_domain.com" # دامنه خودتون رو جایگزین کنید
+# Variables
+DOMAIN="your_domain.com" # Replace with your domain
 INSTALL_DIR="/opt/marzgozir"
 CONFIG_FILE="$INSTALL_DIR/bot_config.py"
 COMPOSE_FILE="$INSTALL_DIR/docker-compose.yml"
 REPO_URL="https://github.com/mahyyar/marzgozir.git"
 
-# تابع برای بررسی و نصب داکر
+# Function to check and install Docker
 check_docker() {
     if ! command -v docker &> /dev/null; then
-        echo -e "${YELLOW}Docker نصب نیست. در حال نصب Docker...${NC}"
+        echo -e "${YELLOW}Docker is not installed. Installing Docker...${NC}"
         sudo apt-get update
         sudo apt-get install -y docker.io
         sudo systemctl start docker
         sudo systemctl enable docker
     fi
     if ! command -v docker-compose &> /dev/null; then
-        echo -e "${YELLOW}Docker Compose نصب نیست. در حال نصب Docker Compose...${NC}"
+        echo -e "${YELLOW}Docker Compose is not installed. Installing Docker Compose...${NC}"
         sudo curl -L "https://github.com/docker/compose/releases/latest/download/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose
         sudo chmod +x /usr/local/bin/docker-compose
     fi
 }
 
-# تابع برای گرفتن توکن و آیدی
+# Function to get token and admin ID
 get_token_and_id() {
-    echo -e "${YELLOW}لطفاً توکن ربات تلگرام را وارد کنید:${NC}"
+    echo -e "${YELLOW}Please enter the Telegram bot token:${NC}"
     read -r BOT_TOKEN
-    echo -e "${YELLOW}لطفاً آیدی عددی ادمین را وارد کنید (فقط عدد، بدون براکت):${NC}"
+    echo -e "${YELLOW}Please enter the admin ID (numeric only, no brackets):${NC}"
     read -r ADMIN_ID
     if [ -z "$BOT_TOKEN" ] || [ -z "$ADMIN_ID" ]; then
-        echo -e "${YELLOW}خطا: توکن ربات و آیدی ادمین نمی‌توانند خالی باشند!${NC}"
+        echo -e "${YELLOW}Error: Bot token and admin ID cannot be empty!${NC}"
         return 1
     fi
     if ! [[ "$ADMIN_ID" =~ ^[0-9]+$ ]]; then
-        echo -e "${YELLOW}خطا: آیدی ادمین باید فقط عدد باشد!${NC}"
+        echo -e "${YELLOW}Error: Admin ID must be numeric only!${NC}"
         return 1
     fi
     echo "$BOT_TOKEN" "$ADMIN_ID"
     return 0
 }
 
-# تابع برای ایجاد bot_config.py
+# Function to create bot_config.py
 create_bot_config() {
     local BOT_TOKEN="$1"
     local ADMIN_ID="$2"
-    echo -e "${YELLOW}ایجاد یا به‌روزرسانی فایل bot_config.py...${NC}"
+    echo -e "${YELLOW}Creating or updating bot_config.py...${NC}"
     sudo cat <<EOL > $CONFIG_FILE
 TOKEN = "$BOT_TOKEN"
 ADMIN_ID = [$ADMIN_ID]
@@ -60,47 +60,47 @@ CACHE_DURATION = 300
 EOL
 }
 
-# تابع برای نصب وابستگی‌ها
+# Function to install dependencies
 install_dependencies() {
     if [ -f "$INSTALL_DIR/requirements.txt" ]; then
-        echo -e "${YELLOW}نصب وابستگی‌های پایتون...${NC}"
+        echo -e "${YELLOW}Installing Python dependencies...${NC}"
         sudo docker run --rm -v $INSTALL_DIR:/app python:3.9 bash -c "pip install --no-cache-dir -r /app/requirements.txt"
     else
-        echo -e "${YELLOW}هشدار: فایل requirements.txt یافت نشد. مطمئن شوید وابستگی‌ها در پروژه وجود دارند.${NC}"
+        echo -e "${YELLOW}Warning: requirements.txt not found. Ensure dependencies are included in the project.${NC}"
     fi
 }
 
-# تابع برای نصب ربات
+# Function to install the bot
 install_bot() {
     check_docker
-    # حذف پروژه قبلی اگه وجود داره
+    # Remove existing project if it exists
     if [ -d "$INSTALL_DIR" ]; then
-        echo -e "${YELLOW}پروژه قبلی یافت شد. در حال حذف...${NC}"
+        echo -e "${YELLOW}Existing project found. Removing...${NC}"
         cd $INSTALL_DIR
         sudo docker-compose down -v 2>/dev/null
         sudo rm -rf $INSTALL_DIR
     fi
-    # گرفتن توکن و آیدی
+    # Get token and admin ID
     read -r BOT_TOKEN ADMIN_ID < <(get_token_and_id)
     if [ $? -ne 0 ]; then
         return 1
     fi
-    # کلون کردن ریپازیتوری
-    echo -e "${YELLOW}کلون کردن پروژه MarzGozir...${NC}"
+    # Clone the repository
+    echo -e "${YELLOW}Cloning MarzGozir project...${NC}"
     sudo mkdir -p $INSTALL_DIR
     sudo git clone $REPO_URL $INSTALL_DIR
     if [ $? -ne 0 ]; then
-        echo -e "${YELLOW}خطا: کلون کردن ریپازیتوری ناموفق بود. آدرس یا دسترسی را بررسی کنید.${NC}"
+        echo -e "${YELLOW}Error: Cloning repository failed. Check the URL or access permissions.${NC}"
         sudo rm -rf $INSTALL_DIR
         return 1
     fi
     cd $INSTALL_DIR
-    # ایجاد bot_config.py
+    # Create bot_config.py
     create_bot_config "$BOT_TOKEN" "$ADMIN_ID"
-    # نصب وابستگی‌ها
+    # Install dependencies
     install_dependencies
-    # ایجاد docker-compose.yml
-    echo -e "${YELLOW}ایجاد فایل docker-compose.yml...${NC}"
+    # Create docker-compose.yml
+    echo -e "${YELLOW}Creating docker-compose.yml...${NC}"
     sudo cat <<EOL > $COMPOSE_FILE
 version: '3.8'
 services:
@@ -131,61 +131,61 @@ services:
 volumes:
   marzgozir_data:
 EOL
-    # راه‌اندازی سرویس‌ها
-    echo -e "${YELLOW}راه‌اندازی MarzGozir و ربات...${NC}"
+    # Start services
+    echo -e "${YELLOW}Starting MarzGozir and bot...${NC}"
     sudo docker-compose up -d
     if [ $? -ne 0 ]; then
-        echo -e "${YELLOW}خطا: راه‌اندازی سرویس‌ها ناموفق بود. لاگ‌ها را بررسی کنید.${NC}"
+        echo -e "${YELLOW}Error: Starting services failed. Check the logs.${NC}"
         return 1
     fi
-    # نمایش اطلاعات
-    echo -e "${YELLOW}نصب با موفقیت انجام شد!${NC}"
-    echo -e "- داشبورد (اگر فعال باشه): https://$DOMAIN:8000/dashboard/"
-    echo -e "${YELLOW}اگر SSL کار نکرد، از http://$DOMAIN:8000/dashboard/ یا IP سرور استفاده کنید.${NC}"
-    echo -e "${YELLOW}ربات تلگرام باید فعال شده باشد. با توکن و آیدی تنظیم‌شده تست کنید.${NC}"
+    # Display information
+    echo -e "${YELLOW}Installation completed successfully!${NC}"
+    echo -e "- Dashboard (if enabled): https://$DOMAIN:8000/dashboard/"
+    echo -e "${YELLOW}If SSL fails, use http://$DOMAIN:8000/dashboard/ or server IP.${NC}"
+    echo -e "${YELLOW}The Telegram bot should be active. Test it with the configured token and ID.${NC}"
 }
 
-# تابع برای آپدیت ربات
+# Function to update the bot
 update_bot() {
     if [ ! -d "$INSTALL_DIR" ]; then
-        echo -e "${YELLOW}خطا: پروژه نصب نشده است! ابتدا ربات را نصب کنید.${NC}"
+        echo -e "${YELLOW}Error: Project not installed! Install the bot first.${NC}"
         return 1
     fi
     cd $INSTALL_DIR
-    echo -e "${YELLOW}به‌روزرسانی پروژه MarzGozir...${NC}"
+    echo -e "${YELLOW}Updating MarzGozir project...${NC}"
     sudo git pull
     if [ $? -ne 0 ]; then
-        echo -e "${YELLOW}خطا: به‌روزرسانی ریپازیتوری ناموفق بود. دسترسی یا اتصال را بررسی کنید.${NC}"
+        echo -e "${YELLOW}Error: Updating repository failed. Check access or connectivity.${NC}"
         return 1
     fi
     install_dependencies
-    echo -e "${YELLOW}بازسازی و ری‌استارت سرویس‌ها...${NC}"
+    echo -e "${YELLOW}Rebuilding and restarting services...${NC}"
     sudo docker-compose up -d --build
     if [ $? -ne 0 ]; then
-        echo -e "${YELLOW}خطا: بازسازی سرویس‌ها ناموفق بود. لاگ‌ها را بررسی کنید.${NC}"
+        echo -e "${YELLOW}Error: Rebuilding services failed. Check the logs.${NC}"
         return 1
     fi
-    echo -e "${YELLOW}ربات با موفقیت آپدیت شد!${NC}"
+    echo -e "${YELLOW}Bot updated successfully!${NC}"
 }
 
-# تابع برای حذف ربات
+# Function to remove the bot
 remove_bot() {
     if [ ! -d "$INSTALL_DIR" ]; then
-        echo -e "${YELLOW}خطا: پروژه نصب نشده است!${NC}"
+        echo -e "${YELLOW}Error: Project not installed!${NC}"
         return 1
     fi
     cd $INSTALL_DIR
-    echo -e "${YELLOW}متوقف کردن و حذف سرویس‌ها...${NC}"
+    echo -e "${YELLOW}Stopping and removing services...${NC}"
     sudo docker-compose down -v
-    echo -e "${YELLOW}حذف دایرکتوری پروژه...${NC}"
+    echo -e "${YELLOW}Removing project directory...${NC}"
     sudo rm -rf $INSTALL_DIR
-    echo -e "${YELLOW}ربات و تمام داده‌ها با موفقیت حذف شدند!${NC}"
+    echo -e "${YELLOW}Bot and all data removed successfully!${NC}"
 }
 
-# تابع برای ویرایش توکن و آیدی
+# Function to edit token and admin ID
 edit_token_id() {
     if [ ! -f "$CONFIG_FILE" ]; then
-        echo -e "${YELLOW}خطا: فایل bot_config.py یافت نشد! ابتدا ربات را نصب کنید.${NC}"
+        echo -e "${YELLOW}Error: bot_config.py not found! Install histamine bot first.${NC}"
         return 1
     fi
     read -r BOT_TOKEN ADMIN_ID < <(get_token_and_id)
@@ -194,16 +194,16 @@ edit_token_id() {
     fi
     create_bot_config "$BOT_TOKEN" "$ADMIN_ID"
     cd $INSTALL_DIR
-    echo -e "${YELLOW}ری‌استارت سرویس ربات...${NC}"
+    echo -e "${YELLOW}Restarting bot service...${NC}"
     sudo docker-compose restart telegram_bot
     if [ $? -ne 0 ]; then
-        echo -e "${YELLOW}خطا: ری‌استارت سرویس ربات ناموفق بود. لاگ‌ها را بررسی کنید.${NC}"
+        echo -e "${YELLOW}Error: Restarting bot service failed. Check the logs.${NC}"
         return 1
     fi
-    echo -e "${YELLOW}توکن و آیدی با موفقیت ویرایش شدند!${NC}"
+    echo -e "${YELLOW}Token and admin ID updated successfully!${NC}"
 }
 
-# منوی اصلی
+# Main menu
 while true; do
     clear
     echo -e "${BLUE}=====================================${NC}"
@@ -222,9 +222,9 @@ while true; do
         2) update_bot ;;
         3) remove_bot ;;
         4) edit_token_id ;;
-        5) clear; echo -e "${YELLOW}خروج از اسکریپت...${NC}"; exit 0 ;;
-        *) echo -e "${YELLOW}گزینه نامعتبر! لطفاً یک عدد بین 1 تا 5 وارد کنید.${NC}" ;;
+        5) clear; echo -e "${YELLOW}Exiting script...${NC}"; exit 0 ;;
+        *) echo -e "${YELLOW}Invalid option! Please enter a number between 1 and 5.${NC}" ;;
     esac
-    echo -e "${YELLOW}برای ادامه، Enter بزنید...${NC}"
+    echo -e "${YELLOW}Press Enter to continue...${NC}"
     read -r
 done
