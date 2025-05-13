@@ -1,15 +1,15 @@
 # MarzGozir
 
-**یک ربات مختص برای افرادی که میخوام در کنار فروش پنل ، یک ربات همه کاره هم نیز به مشتری ارائه دهند .**
+**یک ربات مختص برای افرادی که میخوان در کنار دادن پنل به مشتری ، یک ربات همه کاره هم نیز به مشتری ارائه دهند .**
 ## Installation
 
-To install MarzGozir, use the following command:
+برای نصب MarzGozir ، از دستور زیر استفاده کنید:
 
 ```bash
 curl -o install.sh -L https://raw.githubusercontent.com/imahiar/marz-maneger/main/install.sh && bash install.sh
 ```
-## Donations
-If you like MarzGozir and would like to support further development, consider making a donation:
+## دونیت
+اگر مرزگذیر را دوست دارید و مایل به حمایت از توسعه بیشتر آن هستید، می‌توانید کمک مالی خود را در نظر بگیرید:
 
 - **TRX (TRX):** `TUB6NQYGjBLF6y2zUq9bo8isEZtB7Va9BG`
 
