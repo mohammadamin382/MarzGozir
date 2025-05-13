@@ -168,8 +168,7 @@ if [ $? -ne 0 ]; then
 fi
 
 echo -e "${GREEN}Creating default docker-compose.yml...${NC}"
-if [ ! -f "docker-compose.yml" ]; then
-  cat <<EOL > docker-compose.yml
+cat <<EOL > docker-compose.yml
 version: '3'
 services:
   web:
@@ -183,7 +182,7 @@ services:
     environment:
       - PYTHONUNBUFFERED=1
 EOL
-fi
+check_error "Failed to create docker-compose.yml"
 
 echo -e "${GREEN}Running database migrations...${NC}"
 source venv/bin/activate
