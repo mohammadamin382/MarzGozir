@@ -132,21 +132,20 @@ else
 fi
 deactivate
 
-echo -e "${GREEN}Creating sample .env file...${NC}"
+echo -e "${GREEN}Creating .env file...${NC}"
 if [ -f ".env.example" ]; then
   cp .env.example .env
-  cat <<EOL >> .env
+else
+  echo -e "${YELLOW}.env.example not found. Creating default .env...${NC}"
+  cat <<EOL > .env
 ADMIN_USERNAME=admin
 ADMIN_PASSWORD=admin123
 DOMAIN=your_domain.com
 SSL_ENABLED=false
 DATABASE_URL=sqlite:///db.sqlite3
 EOL
-  echo -e "${YELLOW}.env file created. Edit /opt/MarzGozir/.env to set domain.${NC}"
-else
-  echo -e "${RED}.env.example not found!${NC}"
-  exit 1
 fi
+echo -e "${YELLOW}.env file created. Edit /opt/MarzGozir/.env to set domain.${NC}"
 
 echo -e "${GREEN}Running database migrations...${NC}"
 source venv/bin/activate
