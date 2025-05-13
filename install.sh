@@ -2,6 +2,7 @@
 
 # رنگ‌ها برای خروجی
 YELLOW='\033[1;33m'
+BLUE='\033[1;34m'
 NC='\033[0m' # No Color
 
 # متغیرها
@@ -71,11 +72,14 @@ install_dependencies() {
 
 # تابع برای نصب ربات
 install_bot() {
-    if [ -d "$INSTALL_DIR" ]; then
-        echo -e "${YELLOW}خطا: پروژه قبلاً در $INSTALL_DIR نصب شده است! برای نصب مجدد، ابتدا آن را حذف کنید.${NC}"
-        return 1
-    fi
     check_docker
+    # حذف پروژه قبلی اگه وجود داره
+    if [ -d "$INSTALL_DIR" ]; then
+        echo -e "${YELLOW}پروژه قبلی یافت شد. در حال حذف...${NC}"
+        cd $INSTALL_DIR
+        sudo docker-compose down -v 2>/dev/null
+        sudo rm -rf $INSTALL_DIR
+    fi
     # گرفتن توکن و آیدی
     read -r BOT_TOKEN ADMIN_ID < <(get_token_and_id)
     if [ $? -ne 0 ]; then
@@ -201,20 +205,24 @@ edit_token_id() {
 
 # منوی اصلی
 while true; do
-    echo -e "${YELLOW}----- منوی مدیریت MarzGozir -----${NC}"
-    echo "1. نصب ربات"
-    echo "2. آپدیت ربات"
-    echo "3. حذف ربات"
-    echo "4. ویرایش توکن و آیدی عددی"
-    echo "5. خروج"
-    echo -e "${YELLOW}لطفاً یک گزینه انتخاب کنید (1-5):${NC}"
+    clear
+    echo -e "${BLUE}=====================================${NC}"
+    echo -e "${BLUE}      MarzGozir Management Menu      ${NC}"
+    echo -e "${BLUE}=====================================${NC}"
+    echo -e "${BLUE}1. Install Bot${NC}"
+    echo -e "${BLUE}2. Update Bot${NC}"
+    echo -e "${BLUE}3. Remove Bot${NC}"
+    echo -e "${BLUE}4. Edit Token and Admin ID${NC}"
+    echo -e "${BLUE}5. Exit${NC}"
+    echo -e "${BLUE}=====================================${NC}"
+    echo -e "${YELLOW}Please select an option (1-5):${NC}"
     read -r choice
     case $choice in
         1) install_bot ;;
         2) update_bot ;;
         3) remove_bot ;;
         4) edit_token_id ;;
-        5) echo -e "${YELLOW}خروج از اسکریپت...${NC}"; exit 0 ;;
+        5) clear; echo -e "${YELLOW}خروج از اسکریپت...${NC}"; exit 0 ;;
         *) echo -e "${YELLOW}گزینه نامعتبر! لطفاً یک عدد بین 1 تا 5 وارد کنید.${NC}" ;;
     esac
     echo -e "${YELLOW}برای ادامه، Enter بزنید...${NC}"
