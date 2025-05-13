@@ -50,6 +50,8 @@ get_token_and_id() {
         echo -e "${YELLOW}Error: Admin ID must be numeric only!${NC}"
         return 1
     fi
+    # Debug: Confirm inputs (hide token for security)
+    echo -e "${YELLOW}Received admin ID: $ADMIN_ID${NC}"
     echo "$BOT_TOKEN" "$ADMIN_ID"
     return 0
 }
@@ -66,6 +68,12 @@ DB_PATH = "bot_data.db"
 VERSION = "v1.1.1"
 CACHE_DURATION = 300
 EOL
+    if [ $? -eq 0 ]; then
+        echo -e "${YELLOW}bot_config.py created successfully.${NC}"
+    else
+        echo -e "${YELLOW}Error: Failed to create bot_config.py.${NC}"
+        return 1
+    fi
 }
 
 # Function to install dependencies
@@ -73,6 +81,10 @@ install_dependencies() {
     if [ -f "$INSTALL_DIR/requirements.txt" ]; then
         echo -e "${YELLOW}Installing Python dependencies...${NC}"
         sudo docker run --rm -v $INSTALL_DIR:/app python:3.9 bash -c "pip install --no-cache-dir -r /app/requirements.txt"
+        if [ $? -ne 0 ]; then
+            echo -e "${YELLOW}Error: Failed to install dependencies.${NC}"
+            return 1
+        fi
     else
         echo -e "${YELLOW}Warning: requirements.txt not found. Ensure dependencies are included in the project.${NC}"
     fi
@@ -106,12 +118,17 @@ install_bot() {
     cd $INSTALL_DIR
     # Create bot_config.py
     create_bot_config "$BOT_TOKEN" "$ADMIN_ID"
+    if [ $? -ne 0 ]; then
+        return 1
+    fi
     # Install dependencies
     install_dependencies
+    if [ $? -ne 0 ]; then
+        return 1
+    fi
     # Create docker-compose.yml
     echo -e "${YELLOW}Creating docker-compose.yml...${NC}"
     sudo cat <<EOL > $COMPOSE_FILE
-version: '3.8'
 services:
   marzgozir:
     image: python:3.9
@@ -140,6 +157,10 @@ services:
 volumes:
   marzgozir_data:
 EOL
+    if [ $? -ne 0 ]; then
+        echo -e "${YELLOW}Error: Failed to create docker-compose.yml.${NC}"
+        return 1
+    fi
     # Start services
     echo -e "${YELLOW}Starting MarzGozir and bot...${NC}"
     sudo docker-compose up -d
@@ -168,6 +189,9 @@ update_bot() {
         return 1
     fi
     install_dependencies
+    if [ $? -ne 0 ]; then
+        return 1
+    fi
     echo -e "${YELLOW}Rebuilding and restarting services...${NC}"
     sudo docker-compose up -d --build
     if [ $? -ne 0 ]; then
@@ -202,6 +226,9 @@ edit_token_id() {
         return 1
     fi
     create_bot_config "$BOT_TOKEN" "$ADMIN_ID"
+    if [ $? -ne 0 ]; then
+        return 1
+    fi
     cd $INSTALL_DIR
     echo -e "${YELLOW}Restarting bot service...${NC}"
     sudo docker-compose restart telegram_bot
