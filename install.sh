@@ -103,7 +103,4 @@ echo -e "${YELLOW}راه‌اندازی MarzGozir و ربات با Docker Compos
 sudo docker-compose up -d
 
 # نمایش اطلاعات دسترسی
-echo -e "${YELLOW}نصب با موفقیت انجام شد!${NC}"
-echo -e "- داشبورد (اگر فعال باشه): https://$DOMAIN:8000/dashboard/"
-echo -e "${YELLOW}اگر SSL کار نکرد، از http://$DOMAIN:8000/dashboard/ یا IP سرور استفاده کنید.${NC}"
-echo -e "${YELLOW}ربات تلگرام باید فعال شده باشد. با توکن و آیدی تنظیم‌شده تست کنید.${NC}"
+echo -e "${YELLOW}نصب با موفقیت انجام شد!${NC}"}"
