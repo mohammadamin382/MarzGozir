@@ -24,9 +24,9 @@
 # اسکریپت نصب
 
 ```bash
-curl -o install.sh -L https://raw.githubusercontent.com/imahiar/marz-maneger/main/install.sh && bash install.sh
+curl -o install.sh -L https://raw.githubusercontent.com/imahiar/marz-maneger/main/install.sh && bash install.sh```
 
-
+~~~~~~~~~~~~~~~~~~~~~~~~~
 
 **donation**
 
