@@ -12,8 +12,15 @@ CONFIG_FILE="$INSTALL_DIR/bot_config.py"
 COMPOSE_FILE="$INSTALL_DIR/docker-compose.yml"
 REPO_URL="https://github.com/mahyyar/marzgozir.git"
 
-# Function to check and install Docker
-check_docker() {
+# Function to check and install prerequisites
+check_prerequisites() {
+    # Check and install git
+    if ! command -v git &> /dev/null; then
+        echo -e "${YELLOW}Git is not installed. Installing Git...${NC}"
+        sudo apt-get update
+        sudo apt-get install -y git
+    fi
+    # Check and install Docker
     if ! command -v docker &> /dev/null; then
         echo -e "${YELLOW}Docker is not installed. Installing Docker...${NC}"
         sudo apt-get update
@@ -21,6 +28,7 @@ check_docker() {
         sudo systemctl start docker
         sudo systemctl enable docker
     fi
+    # Check and install Docker Compose
     if ! command -v docker-compose &> /dev/null; then
         echo -e "${YELLOW}Docker Compose is not installed. Installing Docker Compose...${NC}"
         sudo curl -L "https://github.com/docker/compose/releases/latest/download/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose
@@ -72,12 +80,11 @@ install_dependencies() {
 
 # Function to install the bot
 install_bot() {
-    check_docker
+    check_prerequisites
     # Remove existing project if it exists
     if [ -d "$INSTALL_DIR" ]; then
         echo -e "${YELLOW}Existing project found. Removing...${NC}"
-        cd $INSTALL_DIR
-        sudo docker-compose down -v 2>/dev/null
+        sudo docker-compose -f $COMPOSE_FILE down -v 2>/dev/null
         sudo rm -rf $INSTALL_DIR
     fi
     # Get token and admin ID
@@ -87,10 +94,12 @@ install_bot() {
     fi
     # Clone the repository
     echo -e "${YELLOW}Cloning MarzGozir project...${NC}"
-    sudo mkdir -p $INSTALL_DIR
-    sudo git clone $REPO_URL $INSTALL_DIR
+    sudo mkdir -p /opt
+    cd /opt
+    sudo git clone $REPO_URL marzgozir
     if [ $? -ne 0 ]; then
-        echo -e "${YELLOW}Error: Cloning repository failed. Check the URL or access permissions.${NC}"
+        echo -e "${YELLOW}Error: Cloning repository failed. Check the URL, access permissions, or network connectivity.${NC}"
+        echo -e "${YELLOW}Repository URL: $REPO_URL${NC}"
         sudo rm -rf $INSTALL_DIR
         return 1
     fi
@@ -135,7 +144,7 @@ EOL
     echo -e "${YELLOW}Starting MarzGozir and bot...${NC}"
     sudo docker-compose up -d
     if [ $? -ne 0 ]; then
-        echo -e "${YELLOW}Error: Starting services failed. Check the logs.${NC}"
+        echo -e "${YELLOW}Error: Starting services failed. Check the logs with 'sudo docker-compose -f $COMPOSE_FILE logs'.${NC}"
         return 1
     fi
     # Display information
@@ -162,7 +171,7 @@ update_bot() {
     echo -e "${YELLOW}Rebuilding and restarting services...${NC}"
     sudo docker-compose up -d --build
     if [ $? -ne 0 ]; then
-        echo -e "${YELLOW}Error: Rebuilding services failed. Check the logs.${NC}"
+        echo -e "${YELLOW}Error: Rebuilding services failed. Check the logs with 'sudo docker-compose -f $COMPOSE_FILE logs'.${NC}"
         return 1
     fi
     echo -e "${YELLOW}Bot updated successfully!${NC}"
@@ -185,7 +194,7 @@ remove_bot() {
 # Function to edit token and admin ID
 edit_token_id() {
     if [ ! -f "$CONFIG_FILE" ]; then
-        echo -e "${YELLOW}Error: bot_config.py not found! Install histamine bot first.${NC}"
+        echo -e "${YELLOW}Error: bot_config.py not found! Install the bot first.${NC}"
         return 1
     fi
     read -r BOT_TOKEN ADMIN_ID < <(get_token_and_id)
@@ -197,7 +206,7 @@ edit_token_id() {
     echo -e "${YELLOW}Restarting bot service...${NC}"
     sudo docker-compose restart telegram_bot
     if [ $? -ne 0 ]; then
-        echo -e "${YELLOW}Error: Restarting bot service failed. Check the logs.${NC}"
+        echo -e "${YELLOW}Error: Restarting bot service failed. Check the logs with 'sudo docker-compose -f $COMPOSE_FILE logs'.${NC}"
         return 1
     fi
     echo -e "${YELLOW}Token and admin ID updated successfully!${NC}"
