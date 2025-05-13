@@ -1,4 +1,4 @@
-چرا مرزگُذیر ؟ 😎
+# چرا مرزگُذیر ؟ 😎
 
 مرزگذیر به ادمین ها و شما کمک میکنه که👇
 
@@ -19,6 +19,13 @@
 • متصل به Apiپنل مرزبان 
 
 • قابلیت تغییر حجم ، زمان ، خاموش و روشن کردن یوزر و دریافت لینک جدید .
+
+
+# اسکریپت نصب
+
+```bash
+curl -o install.sh -L https://raw.githubusercontent.com/imahiar/marz-maneger/main/install.sh && bash install.sh
+
 
 
 **donation**
