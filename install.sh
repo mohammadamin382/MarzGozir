@@ -1,192 +1,128 @@
 #!/bin/bash
 
-install_prerequisites() {
-    echo "Checking and installing prerequisites..."
-    local packages=("python3" "python3-pip" "python3-venv" "git")
-    local missing=()
-    for pkg in "${packages[@]}"; do
-        if ! command -v "$pkg" &> /dev/null; then
-            missing+=("$pkg")
-        fi
-    done
-    if [ ${#missing[@]} -ne 0 ]; then
-        echo "Installing missing packages: ${missing[*]}"
-        sudo apt update
-        sudo apt install -y "${missing[@]}"
-    else
-        echo "All prerequisites are already installed."
-    fi
-    python3 --version
-    pip3 --version
+# اسکریپت نصب خودکار MarzGozir
+# نصب پیش‌نیازها، قرار دادن سورس در /opt/MarzGozir، اجرای پروژه با Docker
+# حفظ قابلیت‌های CLI: نصب بات، آپدیت بات، حذف بات، ویرایش توکن و آیدی، خروج
+
+# رنگ‌ها برای خروجی
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+NC='\033[0m'
+
+# بررسی دسترسی root
+if [ "$EUID" -ne 0 ]; then
+  echo -e "${RED}لطفاً اسکریپت را با sudo اجرا کنید${NC}"
+  exit 1
+fi
+
+# تابع بررسی خطا
+check_error() {
+  if [ $? -ne 0 ]; then
+    echo -e "${RED}خطا: $1${NC}"
+    exit 1
+  fi
 }
 
-check_bot_status() {
-    if pgrep -f "python3 bot.py" > /dev/null; then
-        echo "Bot is running."
-        return 0
-    else
-        echo "Bot is not running. Checking logs for errors..."
-        if [ -f "/opt/MahYaR/MarzGozir/bot.log" ]; then
-            echo "Last 10 lines of bot.log:"
-            tail -n 10 /opt/MahYaR/MarzGozir/bot.log
-        else
-            echo "No log file found at /opt/MahYaR/MarzGozir/bot.log"
-        fi
-        return 1
-    fi
-}
+echo -e "${YELLOW}نصب و اجرای MarzGozir...${NC}"
 
-show_menu() {
-    clear
-    echo "================================="
-    echo "      MarzGozir Bot Manager      "
-    echo "================================="
-    echo "1. Install Bot"
-    echo "2. Update Bot"
-    echo "3. Change Token and Admin ID"
-    echo "4. Remove Bot"
-    echo "5. Exit"
-    echo "================================="
-    echo -n "Please select an option (1-5): "
-}
+# 1. به‌روزرسانی سیستم و نصب ابزارهای اولیه
+echo -e "${GREEN}به‌روزرسانی سیستم و نصب ابزارها...${NC}"
+apt update && apt upgrade -y
+apt install -y curl wget git python3 python3-pip
+check_error "نصب ابزارهای اولیه ناموفق بود"
 
-install_bot() {
-    echo "Starting bot installation..."
-    install_prerequisites
-    sudo mkdir -p /opt/MahYaR
-    cd /opt/MahYaR
-    if [ -d "MarzGozir" ]; then
-        echo "MarzGozir directory already exists. Removing and reinstalling..."
-        sudo rm -rf MarzGozir
-    fi
-    sudo git clone https://github.com/mahyyar/MarzGozir.git
-    cd MarzGozir
-    if [ ! -f "bot.py" ] || [ ! -f "requirements.txt" ]; then
-        echo "Error: bot.py or requirements.txt not found in the repository!"
-        read -p "Press Enter to return to the menu..."
-        return 1
-    fi
-    python3 -m venv venv
-    source venv/bin/activate
-    if ! pip install --upgrade pip; then
-        echo "Error: Failed to upgrade pip."
-        read -p "Press Enter to return to the menu..."
-        return 1
-    fi
-    if ! pip install -r requirements.txt; then
-        echo "Error: Failed to install dependencies. Check requirements.txt."
-        read -p "Press Enter to return to the menu..."
-        return 1
-    fi
-    read -p "Enter bot token: " token
-    read -p "Enter admin ID: " admin_id
-    cat > bot_config.py << EOL
-TOKEN = "$token"
-ADMIN_ID = $admin_id
+# 2. نصب Docker
+echo -e "${GREEN}نصب Docker...${NC}"
+if ! command -v docker &> /dev/null; then
+  curl -fsSL https://get.docker.com -o get-docker.sh
+  sh get-docker.sh
+  check_error "نصب Docker ناموفق بود"
+  rm get-docker.sh
+else
+  echo -e "${YELLOW}Docker قبلاً نصب شده است${NC}"
+fi
+usermod -aG docker $SUDO_USER
+check_error "افزودن کاربر به گروه docker ناموفق بود"
+
+# 3. نصب Docker Compose
+echo -e "${GREEN}نصب Docker Compose...${NC}"
+if ! command -v docker-compose &> /dev/null; then
+  pip3 install docker-compose
+  check_error "نصب Docker Compose ناموفق بود"
+else
+  echo -e "${YELLOW}Docker Compose قبلاً نصب شده است${NC}"
+fi
+
+# 4. ایجاد پوشه و کلون کردن پروژه در /opt/MarzGozir
+echo -e "${GREEN}کلون کردن MarzGozir در /opt/MarzGozir...${NC}"
+if [ -d "/opt/MarzGozir" ]; then
+  echo -e "${YELLOW}پوشه /opt/MarzGozir وجود دارد. حذف و کلون مجدد...${NC}"
+  rm -rf /opt/MarzGozir
+fi
+git clone https://github.com/mahyyar/MarzGozir.git /opt/MarzGozir
+check_error "کلون پروژه ناموفق بود"
+cd /opt/MarzGozir
+
+# 5. نصب وابستگی‌های پایتون
+echo -e "${GREEN}نصب وابستگی‌های پایتون...${NC}"
+pip3 install -r requirements.txt
+check_error "نصب وابستگی‌ها ناموفق بود"
+
+# 6. ایجاد فایل .env نمونه
+echo -e "${GREEN}ایجاد فایل .env نمونه...${NC}"
+if [ -f ".env.example" ]; then
+  cp .env.example .env
+  # تنظیمات پیش‌فرض برای نمونه
+  cat <<EOL >> .env
+# تنظیمات نمونه اولیه
+ADMIN_USERNAME=admin
+ADMIN_PASSWORD=admin123
+DOMAIN=your_domain.com
+SSL_ENABLED=false
+TELEGRAM_BOT_TOKEN=your_bot_token
+TELEGRAM_ADMIN_ID=your_admin_id
+DATABASE_URL=sqlite:///db.sqlite3
 EOL
-    nohup python3 bot.py > bot.log 2>&1 &
-    sleep 2
-    if check_bot_status; then
-        echo "Bot installed and started successfully!"
-    else
-        echo "Failed to start the bot. Please check the logs."
-    fi
-    read -p "Press Enter to return to the menu..."
-}
+  echo -e "${YELLOW}فایل .env ایجاد شد. لطفاً دامنه، توکن بات، و آیدی ادمین را در /opt/MarzGozir/.env ویرایش کنید.${NC}"
+else
+  echo -e "${RED}فایل .env.example یافت نشد!${NC}"
+  exit 1
+fi
 
-update_bot() {
-    echo "Starting bot update..."
-    if [ ! -d "/opt/MahYaR/MarzGozir" ]; then
-        echo "Bot is not installed! Please install the bot first."
-        read -p "Press Enter to return to the menu..."
-        return
-    fi
-    cd /opt/MahYaR/MarzGozir
-    git pull origin main
-    source venv/bin/activate
-    if ! pip install --upgrade pip; then
-        echo "Error: Failed to upgrade pip."
-        read -p "Press Enter to return to the menu..."
-        return 1
-    fi
-    if ! pip install -r requirements.txt; then
-        echo "Error: Failed to install dependencies. Check requirements.txt."
-        read -p "Press Enter to return to the menu..."
-        return 1
-    fi
-    pkill -f "python3 bot.py"
-    nohup python3 bot.py > bot.log 2>&1 &
-    sleep 2
-    if check_bot_status; then
-        echo "Bot updated and restarted successfully!"
-    else
-        echo "Failed to restart the bot. Please check the logs."
-    fi
-    read -p "Press Enter to return to the menu..."
-}
+# 7. اجرای مهاجرت‌های پایگاه داده
+echo -e "${GREEN}اجرای مهاجرت‌های پایگاه داده...${NC}"
+python3 manage.py migrate
+check_error "اجرای مهاجرت‌ها ناموفق بود"
 
-change_config() {
-    if [ ! -f "/opt/MahYaR/MarzGozir/bot_config.py" ]; then
-        echo "Configuration file not found! Please install the bot first."
-        read -p "Press Enter to return to the menu..."
-        return
-    fi
-    read -p "Enter new bot token: " token
-    read -p "Enter new admin ID: " admin_id
-    cat > /opt/MahYaR/MarzGozir/bot_config.py << EOL
-TOKEN = "$token"
-ADMIN_ID = $admin_id
-EOL
-    pkill -f "python3 bot.py"
-    cd /opt/MahYaR/MarzGozir
-    source venv/bin/activate
-    nohup python3 bot.py > bot.log 2>&1 &
-    sleep 2
-    if check_bot_status; then
-        echo "Token and Admin ID updated successfully!"
-    else
-        echo "Failed to restart the bot. Please check the logs."
-    fi
-    read -p "Press Enter to return to the menu..."
-}
+# 8. اجرای پروژه با Docker Compose
+echo -e "${GREEN}اجرای پروژه با Docker Compose...${NC}"
+docker-compose up -d
+check_error "اجرای Docker Compose ناموفق بود"
 
-remove_bot() {
-    echo "Removing bot..."
-    if [ ! -d "/opt/MahYaR" ]; then
-        echo "Bot is not installed!"
-        read -p "Press Enter to return to the menu..."
-        return
-    fi
-    pkill -f "python3 bot.py"
-    sudo rm -rf /opt/MahYaR
-    echo "Bot removed successfully!"
-    read -p "Press Enter to return to the menu..."
-}
+# 9. تنظیم CLI برای حفظ قابلیت‌های اصلی
+echo -e "${GREEN}تنظیم CLI پروژه...${NC}"
+if [ -f "marzban-cli.py" ]; then
+  ln -s /opt/MarzGozir/marzban-cli.py /usr/bin/marzban-cli
+  chmod +x /usr/bin/marzban-cli
+  marzban-cli completion install
+  echo -e "${GREEN}CLI نصب شد. می‌توانید از دستورات زیر استفاده کنید:${NC}"
+  echo -e "  - نصب بات: marzban-cli bot install"
+  echo -e "  - آپدیت بات: marzban-cli bot update"
+  echo -e "  - حذف بات: marzban-cli bot remove"
+  echo -e "  - ویرایش توکن و آیدی: ویرایش /opt/MarzGozir/.env"
+  echo -e "  - خروج: marzban-cli logout"
+else
+  echo -e "${YELLOW}فایل marzban-cli.py یافت نشد. قابلیت‌های CLI ممکن است محدود باشد.${NC}"
+fi
 
-while true; do
-    show_menu
-    read choice
-    case $choice in
-        1)
-            install_bot
-            ;;
-        2)
-            update_bot
-            ;;
-        3)
-            change_config
-            ;;
-        4)
-            remove_bot
-            ;;
-        5)
-            clear
-            echo "Exiting..."
-            exit 0
-            ;;
-        *)
-            echo "Invalid option! Please select a number between 1 and 5."
-            read -p "Press Enter to continue..."
-            ;;
-    esac
-done
+# 10. نمایش اطلاعات نهایی
+echo -e "${GREEN}نصب و اجرا با موفقیت انجام شد!${NC}"
+echo -e "${YELLOW}جزئیات:${NC}"
+echo -e "- داشبورد: http://your_domain.com:8000/dashboard/"
+echo -e "- فایل تنظیمات: /opt/MarzGozir/.env"
+echo -e "- مدیریت سرویس:"
+echo -e "  توقف: cd /opt/MarzGozir && docker-compose down"
+echo -e "  راه‌اندازی مجدد: cd /opt/MarzGozir && docker-compose up -d"
+echo -e "- دستورات CLI: marzban-cli --help"
+echo -e "${YELLOW}برای امنیت، SSL را فعال کنید و .env را ویرایش کنید.${NC}"
