@@ -4,6 +4,7 @@
 # نصب پیش‌نیازها، قرار دادن سورس در /opt/MarzGozir، اجرای پروژه با Docker
 # حفظ قابلیت‌های CLI: نصب بات، آپدیت بات، حذف بات، ویرایش توکن و آیدی، خروج
 # دریافت توکن و آیدی از کاربر و ذخیره در bot_config.py
+# اصلاح خطای نصب Docker Compose و مشکل کاربر docker
 
 # رنگ‌ها برای خروجی
 RED='\033[0;31m'
@@ -40,13 +41,31 @@ if [ -z "$TELEGRAM_ADMIN_ID" ]; then
   exit 1
 fi
 
-# 2. به‌روزرسانی سیستم و نصب ابزارهای اولیه
+# 2. دریافت نام کاربر برای گروه docker
+echo -e "${GREEN}لطفاً نام کاربری سیستم را وارد کنید (برای افزودن به گروه docker):${NC}"
+read -p "نام کاربر (یا Enter برای استفاده از کاربر فعلی): " INPUT_USER
+if [ -z "$INPUT_USER" ]; then
+  USER_NAME=$(who -u | awk '{print $1}' | head -n 1)
+else
+  USER_NAME="$INPUT_USER"
+fi
+if [ -z "$USER_NAME" ] || [ "$USER_NAME" == "root" ]; then
+  echo -e "${YELLOW}کاربر معتبر یافت نشد. استفاده از کاربر پیش‌فرض (nobody)...${NC}"
+  USER_NAME="nobody"
+fi
+# بررسی وجود کاربر
+if ! id "$USER_NAME" >/dev/null 2>&1; then
+  echo -e "${RED}کاربر $USER_NAME وجود ندارد!${NC}"
+  exit 1
+fi
+
+# 3. به‌روزرسانی سیستم و نصب ابزارهای اولیه
 echo -e "${GREEN}به‌روزرسانی سیستم و نصب ابزارها...${NC}"
 apt update && apt upgrade -y
 apt install -y curl wget git python3 python3-pip
 check_error "نصب ابزارهای اولیه ناموفق بود"
 
-# 3. نصب Docker
+# 4. نصب Docker
 echo -e "${GREEN}نصب Docker...${NC}"
 if ! command -v docker &> /dev/null; then
   curl -fsSL https://get.docker.com -o get-docker.sh
@@ -58,30 +77,29 @@ else
 fi
 
 # بررسی و افزودن کاربر به گروه docker
-echo -e "${GREEN}افزودن کاربر به گروه docker...${NC}"
+echo -e "${GREEN}افزودن کاربر $USER_NAME به گروه docker...${NC}"
 if ! getent group docker > /dev/null; then
   echo -e "${YELLOW}گروه docker وجود ندارد. ایجاد گروه...${NC}"
   groupadd docker
   check_error "ایجاد گروه docker ناموفق بود"
 fi
-USER_NAME=${SUDO_USER:-$(whoami)}
-if [ -z "$USER_NAME" ] || [ "$USER_NAME" == "root" ]; then
-  echo -e "${YELLOW}کاربر معتبر یافت نشد. استفاده از کاربر پیش‌فرض (nobody)...${NC}"
-  USER_NAME="nobody"
-fi
 usermod -aG docker "$USER_NAME"
 check_error "افزودن کاربر $USER_NAME به گروه docker ناموفق بود"
 
-# 4. نصب Docker Compose
+# 5. نصب Docker Compose (با استفاده از باینری)
 echo -e "${GREEN}نصب Docker Compose...${NC}"
 if ! command -v docker-compose &> /dev/null; then
-  pip3 install docker-compose
+  DOCKER_COMPOSE_VERSION="2.29.2" # نسخه پایدار
+  curl -L "https://github.com/docker/compose/releases/download/v${DOCKER_COMPOSE_VERSION}/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose
+  check_error "دانلود Docker Compose ناموفق بود"
+  chmod +x /usr/local/bin/docker-compose
+  ln -sf /usr/local/bin/docker-compose /usr/bin/docker-compose
   check_error "نصب Docker Compose ناموفق بود"
 else
   echo -e "${YELLOW}Docker Compose قبلاً نصب شده است${NC}"
 fi
 
-# 5. ایجاد پوشه و کلون کردن پروژه در /opt/MarzGozir
+# 6. ایجاد پوشه و کلون کردن پروژه در /opt/MarzGozir
 echo -e "${GREEN}کلون کردن MarzGozir در /opt/MarzGozir...${NC}"
 if [ -d "/opt/MarzGozir" ]; then
   echo -e "${YELLOW}پوشه /opt/MarzGozir وجود دارد. حذف و کلون مجدد...${NC}"
@@ -91,7 +109,7 @@ git clone https://github.com/mahyyar/MarzGozir.git /opt/MarzGozir
 check_error "کلون پروژه ناموفق بود"
 cd /opt/MarzGozir
 
-# 6. ایجاد یا به‌روزرسانی فایل bot_config.py
+# 7. ایجاد یا به‌روزرسانی فایل bot_config.py
 echo -e "${GREEN}ایجاد/به‌روزرسانی فایل bot_config.py...${NC}"
 cat <<EOL > bot_config.py
 # تنظیمات بات تلگرام
@@ -100,12 +118,12 @@ ADMIN_ID = "$TELEGRAM_ADMIN_ID"
 EOL
 check_error "ایجاد فایل bot_config.py ناموفق بود"
 
-# 7. نصب وابستگی‌های پایتون
+# 8. نصب وابستگی‌های پایتون
 echo -e "${GREEN}نصب وابستگی‌های پایتون...${NC}"
-pip3 install -r requirements.txt
+pip3 install -r requirements.txt --break-system-packages
 check_error "نصب وابستگی‌ها ناموفق بود"
 
-# 8. ایجاد فایل .env نمونه
+# 9. ایجاد فایل .env نمونه
 echo -e "${GREEN}ایجاد فایل .env نمونه...${NC}"
 if [ -f ".env.example" ]; then
   cp .env.example .env
@@ -123,17 +141,17 @@ else
   exit 1
 fi
 
-# 9. اجرای مهاجرت‌های پایگاه داده
+# 10. اجرای مهاجرت‌های پایگاه داده
 echo -e "${GREEN}اجرای مهاجرت‌های پایگاه داده...${NC}"
 python3 manage.py migrate
 check_error "اجرای مهاجرت‌ها ناموفق بود"
 
-# 10. اجرای پروژه با Docker Compose
+# 11. اجرای پروژه با Docker Compose
 echo -e "${GREEN}اجرای پروژه با Docker Compose...${NC}"
 docker-compose up -d
 check_error "اجرای Docker Compose ناموفق بود"
 
-# 11. تنظیم CLI برای حفظ قابلیت‌های اصلی
+# 12. تنظیم CLI برای حفظ قابلیت‌های اصلی
 echo -e "${GREEN}تنظیم CLI پروژه...${NC}"
 if [ -f "marzban-cli.py" ]; then
   ln -s /opt/MarzGozir/marzban-cli.py /usr/bin/marzban-cli
@@ -149,7 +167,7 @@ else
   echo -e "${YELLOW}فایل marzban-cli.py یافت نشد. قابلیت‌های CLI ممکن است محدود باشد.${NC}"
 fi
 
-# 12. نمایش اطلاعات نهایی
+# 13. نمایش اطلاعات نهایی
 echo -e "${GREEN}نصب و اجرا با موفقیت انجام شد!${NC}"
 echo -e "${YELLOW}جزئیات:${NC}"
 echo -e "- داشبورد: http://your_domain.com:8000/dashboard/"
