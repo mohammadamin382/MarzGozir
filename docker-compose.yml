@@ -1,0 +1,14 @@
+services:
+  telegram_bot:
+    image: python:3.9
+    container_name: marzgozir_bot
+    volumes:
+      - .:/app
+      - /var/lib/marzgozir/bot_data:/app
+    environment:
+      - PYTHONPATH=/app
+    working_dir: /app
+    command: bash -c "pip install --no-cache-dir -r requirements.txt && python3 bot.py"
+    restart: unless-stopped
+volumes:
+  marzgozir_data:
