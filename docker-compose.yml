@@ -1,14 +1,10 @@
+version: '3.8'
+
 services:
-  telegram_bot:
-    image: python:3.9
-    container_name: marzgozir_bot
+  bot:
+    build:
+      context: .
+      dockerfile: Dockerfile
     volumes:
-      - .:/app
-      - /var/lib/marzgozir/bot_data:/app
-    environment:
-      - PYTHONPATH=/app
-    working_dir: /app
-    command: bash -c "pip install --no-cache-dir -r requirements.txt && python3 bot.py"
+      - ./bot_data.db:/app/bot_data.db
     restart: unless-stopped
-volumes:
-  marzgozir_data:
