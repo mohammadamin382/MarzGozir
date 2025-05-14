@@ -116,6 +116,21 @@ uninstall_bot() {
     fi
 }
 
+update_bot() {
+    if [ -d "$INSTALL_DIR" ]; then
+        echo -e "${YELLOW}Updating bot...${NC}"
+        cd "$INSTALL_DIR" || exit 1
+        sudo docker-compose -f "$COMPOSE_FILE" down 2>/dev/null || true
+        git pull || { echo -e "${RED}Failed to update repository${NC}"; exit 1; }
+        check_required_files || { echo -e "${RED}Required files are missing${NC}"; exit 1; }
+        sudo docker-compose build --no-cache || { echo -e "${RED}Failed to build Docker image${NC}"; exit 1; }
+        sudo docker-compose up -d || { echo -e "${RED}Failed to start Docker Compose${NC}"; sudo docker-compose logs; exit 1; }
+        echo -e "${GREEN}Bot updated successfully${NC}"
+    else
+        echo -e "${RED}Bot is not installed!${NC}"
+    fi
+}
+
 restart_bot() {
     if [ -d "$INSTALL_DIR" ]; then
         echo -e "${YELLOW}Restarting bot...${NC}"
@@ -138,40 +153,27 @@ reset_token_and_id() {
     fi
 }
 
-clear_project() {
-    if [ -d "$INSTALL_DIR" ]; then
-        echo -e "${YELLOW}Clearing project...${NC}"
-        cd "$INSTALL_DIR" || exit 1
-        sudo docker-compose -f "$COMPOSE_FILE" down 2>/dev/null || true
-        sudo rm -rf "$INSTALL_DIR"
-        echo -e "${GREEN}Project cleared successfully${NC}"
-    else
-        echo -e "${RED}No project exists to clear!${NC}"
-    fi
-}
-
 show_menu() {
     clear
     echo -e "${YELLOW}===== Bot Management Menu =====${NC}"
     echo "1) Install Bot"
-    echo "2) Uninstall Bot"
-    echo "3) Restart Bot"
+    echo "2) Update Bot"
+    echo "3) Uninstall Bot"
     echo "4) Change BotToken and Admin ID"
-    echo "5) Clear Project"
+    echo "5) Restart Bot"
     echo "6) Exit"
     echo -e "${YELLOW}Please select an option (1-6):${NC}"
 }
 
-# Main menu loop
 while true; do
     show_menu
     read -r choice
     case $choice in
         1) install_bot ;;
-        2) uninstall_bot ;;
-        3) restart_bot ;;
+        2) update_bot ;;
+        3) uninstall_bot ;;
         4) reset_token_and_id ;;
-        5) clear_project ;;
+        5) restart_bot ;;
         6) echo -e "${GREEN}Exiting program...${NC}"; exit 0 ;;
         *) echo -e "${RED}Invalid option! Please select a number between 1 and 6.${NC}" ;;
     esac
