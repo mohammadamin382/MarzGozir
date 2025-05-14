@@ -165,7 +165,7 @@ clear_project() {
 # Function to display the menu
 show_menu() {
     clear
-    echo -e "${YELLOW}=== Bot Management Menu ===${NC}"
+    echo -e "${YELLOW}==== Bot Management Menu ====${NC}"
     echo "1) Install Bot"
     echo "2) Uninstall Bot"
     echo "3) Restart Bot"
