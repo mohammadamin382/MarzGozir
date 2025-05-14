@@ -536,6 +536,7 @@ async def message_handler(message: types.Message, state: FSMContext, bot: Bot):
                     await state.update_data(login_messages=[message.message_id])
         except Exception as e:
             logger.error(f"Search user error: {str(e)}")
+            logger.error(f"Search user error: {str(e)}")
             message = await bot.send_message(chat_id, f"❌ خطا در جستجو: {str(e)}")
             await state.update_data(login_messages=[message.message_id])
             await state.clear()
@@ -684,12 +685,9 @@ async def check_server_availability(url: str) -> bool:
         if not url_pattern:
             logger.error(f"Invalid URL format: {url}")
             return False
-
         hostname = url_pattern.group(1).split("://")[1]
-        port = int(url_pattern.group(2)) if url_pattern.group(2) else 443  # پیش‌فرض پورت 443
-
+        port = int(url_pattern.group(2)) if url_pattern.group(2) else 443
         socket.getaddrinfo(hostname, port)
-        
         async with aiohttp.ClientSession() as session:
             async with session.get(url, timeout=5, ssl=True) as response:
                 return response.status < 500
@@ -698,5 +696,4 @@ async def check_server_availability(url: str) -> bool:
         return False
     except Exception as e:
         logger.error(f"Unexpected error checking server {url}: {str(e)}")
-        return False
         return False
