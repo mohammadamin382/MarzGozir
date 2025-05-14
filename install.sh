@@ -1,19 +1,16 @@
 #!/bin/bash
 
-# Color definitions for output
 YELLOW='\033[1;33m'
 GREEN='\033[1;32m'
 RED='\033[1;31m'
 NC='\033[0m'
 
-# Directory and file paths
 INSTALL_DIR="/opt/marzgozir"
 CONFIG_FILE="$INSTALL_DIR/bot_config.py"
 COMPOSE_FILE="$INSTALL_DIR/docker-compose.yml"
 DATA_DIR="$INSTALL_DIR/data"
 REPO_URL="https://github.com/mahyyar/MarzGozir.git"
 
-# Function to check and install prerequisites
 check_prerequisites() {
     echo -e "${YELLOW}Checking system prerequisites...${NC}"
     if ! command -v git &> /dev/null; then
@@ -36,7 +33,6 @@ check_prerequisites() {
     echo -e "${GREEN}All prerequisites successfully installed${NC}"
 }
 
-# Function to collect bot token and admin ID
 get_token_and_id() {
     echo -e "${YELLOW}Enter your Telegram bot token:${NC}"
     read -r BOT_TOKEN
@@ -54,7 +50,6 @@ get_token_and_id() {
     return 0
 }
 
-# Function to create or update bot_config.py
 create_bot_config() {
     echo -e "${YELLOW}Creating or updating bot_config.py...${NC}"
     mkdir -p "$INSTALL_DIR"
@@ -69,7 +64,6 @@ create_bot_config() {
     echo -e "${GREEN}Configuration file bot_config.py created successfully${NC}"
 }
 
-# Function to set up database directory and permissions
 setup_data_directory() {
     echo -e "${YELLOW}Setting up database directory and permissions...${NC}"
     mkdir -p "$DATA_DIR"
@@ -78,7 +72,6 @@ setup_data_directory() {
     echo -e "${GREEN}Database directory configured successfully${NC}"
 }
 
-# Function to verify required files
 check_required_files() {
     echo -e "${YELLOW}Verifying required files...${NC}"
     for file in Dockerfile docker-compose.yml requirements.txt main.py bot/handlers.py; do
@@ -91,7 +84,6 @@ check_required_files() {
     return 0
 }
 
-# Function to install the bot
 install_bot() {
     if [ -d "$INSTALL_DIR" ]; then
         echo -e "${YELLOW}Existing directory detected. Removing old files...${NC}"
@@ -112,7 +104,6 @@ install_bot() {
     echo -e "${GREEN}Bot installed and running successfully!${NC}"
 }
 
-# Function to uninstall the bot
 uninstall_bot() {
     if [ -d "$INSTALL_DIR" ]; then
         echo -e "${YELLOW}Stopping and removing bot...${NC}"
@@ -125,7 +116,6 @@ uninstall_bot() {
     fi
 }
 
-# Function to restart the bot
 restart_bot() {
     if [ -d "$INSTALL_DIR" ]; then
         echo -e "${YELLOW}Restarting bot...${NC}"
@@ -137,7 +127,6 @@ restart_bot() {
     fi
 }
 
-# Function to reset token and ID
 reset_token_and_id() {
     if [ -f "$CONFIG_FILE" ]; then
         echo -e "${YELLOW}Resetting bot token and admin ID...${NC}"
@@ -149,7 +138,6 @@ reset_token_and_id() {
     fi
 }
 
-# Function to clear the project
 clear_project() {
     if [ -d "$INSTALL_DIR" ]; then
         echo -e "${YELLOW}Clearing project...${NC}"
@@ -162,14 +150,13 @@ clear_project() {
     fi
 }
 
-# Function to display the menu
 show_menu() {
     clear
     echo -e "${YELLOW}==== Bot Management Menu ====${NC}"
     echo "1) Install Bot"
     echo "2) Uninstall Bot"
     echo "3) Restart Bot"
-    echo "4) Reset Token and Numeric ID (edit bot_config.py)"
+    echo "4) Change BotToken and Admin ID"
     echo "5) Clear Project"
     echo "6) Exit"
     echo -e "${YELLOW}Please select an option (1-6):${NC}"
