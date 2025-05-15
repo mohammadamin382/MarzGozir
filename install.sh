@@ -86,7 +86,9 @@ create_bot_config() {
     cat > "$CONFIG_FILE" << EOF
 TOKEN="$TOKEN"
 ADMIN_IDS=[$ADMIN_ID]
-VERSION="v0.1.0"
+DB_PATH="bot_data.db"
+VERSION="v1.1.3"
+CACHE_DURATION=300
 EOF
     chmod 644 "$CONFIG_FILE"
     echo -e "${GREEN}Configuration file bot_config.py created successfully${NC}"
