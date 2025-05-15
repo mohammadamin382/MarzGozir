@@ -1,26 +1,25 @@
-import asyncio
 import logging
 from aiogram import Bot, Dispatcher
-from aiogram.client.default import DefaultBotProperties
 from aiogram.filters import Command
 from bot.handlers import start, button_callback, message_handler
-from bot_config import TOKEN, VERSION
-from database.db import init_db
-from bot_logger import setup_logging
+from bot_config import TOKEN
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 async def main():
-    setup_logging()
-    init_db()
-    bot = Bot(token=TOKEN, default=DefaultBotProperties(parse_mode='HTML'))
+    bot = Bot(token=TOKEN)
     dp = Dispatcher()
-    dp.message.register(start, Command("start"))
+    
+    dp.message.register(start, Command(commands=["start"]))
     dp.callback_query.register(button_callback)
     dp.message.register(message_handler)
-    logging.info(f"Starting bot (version {VERSION})")
     try:
+        logger.info("Starting bot...")
         await dp.start_polling(bot)
-    except Exception as e:
-        logging.error(f"Polling error: {str(e)}")
+    finally:
+        await bot.session.close()
 
 if __name__ == "__main__":
+    import asyncio
     asyncio.run(main())
