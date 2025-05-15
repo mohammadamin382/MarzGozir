@@ -140,7 +140,7 @@ check_container_status() {
 install_bot() {
     if [ -d "$INSTALL_DIR" ]; then
         echo -e "${YELLOW}Existing directory detected. Removing old installation...${NC}"
-        cleanup_docker
+        cd "$INSTALL_DIR" 2>/dev/null && cleanup_docker || true
         sudo rm -rf "$INSTALL_DIR"
     fi
     check_prerequisites
@@ -174,8 +174,19 @@ update_bot() {
     if [ -d "$INSTALL_DIR" ]; then
         echo -e "${YELLOW}Updating bot...${NC}"
         cd "$INSTALL_DIR" || exit 1
+        # Backup bot_config.py
+        if [ -f "$CONFIG_FILE" ]; then
+            cp "$CONFIG_FILE" "/tmp/bot_config.py.bak"
+        fi
+        # Reset local changes to avoid merge conflicts
+        git reset --hard || { echo -e "${RED}Failed to reset local changes${NC}"; exit 1; }
+        git clean -fd || { echo -e "${RED}Failed to clean untracked files${NC}"; exit 1; }
         cleanup_docker
         git pull || { echo -e "${RED}Failed to update repository${NC}"; exit 1; }
+        # Restore bot_config.py
+        if [ -f "/tmp/bot_config.py.bak" ]; then
+            mv "/tmp/bot_config.py.bak" "$CONFIG_FILE"
+        fi
         check_required_files || { echo -e "${RED}Required files are missing${NC}"; exit 1; }
         echo -e "${YELLOW}Building and starting bot with Docker Compose...${NC}"
         sudo docker-compose build --no-cache || { echo -e "${RED}Failed to build Docker image${NC}"; exit 1; }
