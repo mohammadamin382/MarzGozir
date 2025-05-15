@@ -112,20 +112,29 @@ check_required_files() {
     return 0
 }
 
+fix_main_py() {
+    echo -e "${YELLOW}Checking and fixing main.py for BOT_TOKEN compatibility...${NC}"
+    if grep -q "from bot_config import TOKEN" "$INSTALL_DIR/main.py"; then
+        echo -e "${YELLOW}Updating main.py to use BOT_TOKEN instead of TOKEN...${NC}"
+        sed -i 's/from bot_config import TOKEN/from bot_config import BOT_TOKEN, VERSION/' "$INSTALL_DIR/main.py"
+        sed -i 's/token=TOKEN/token=BOT_TOKEN/' "$INSTALL_DIR/main.py"
+        echo -e "${GREEN}main.py updated successfully${NC}"
+    else
+        echo -e "${GREEN}main.py is already compatible with BOT_TOKEN${NC}"
+    fi
+}
+
 cleanup_docker() {
     echo -e "${YELLOW}Cleaning up existing Docker containers, images, and volumes...${NC}"
-    # Stop and remove containers
     sudo docker-compose -f "$COMPOSE_FILE" down --volumes --rmi all 2>/dev/null || true
-    # Remove any dangling images
     sudo docker images -q -f "reference=$PROJECT_NAME" | sort -u | xargs -r sudo docker rmi 2>/dev/null || true
-    # Remove any orphaned containers
     sudo docker ps -a -q -f "name=$PROJECT_NAME" | xargs -r sudo docker rm 2>/dev/null || true
     echo -e "${GREEN}Docker cleanup completed${NC}"
 }
 
 check_container_status() {
     echo -e "${YELLOW}Checking container status...${NC}"
-    sleep 5  # Wait for container to start
+    sleep 5
     container_status=$(sudo docker ps -q -f "name=$PROJECT_NAME")
     if [ -n "$container_status" ]; then
         echo -e "${GREEN}Container is running successfully${NC}"
@@ -148,6 +157,7 @@ install_bot() {
     git clone "$REPO_URL" "$INSTALL_DIR" || { echo -e "${RED}Failed to clone repository${NC}"; exit 1; }
     cd "$INSTALL_DIR" || exit 1
     check_required_files || { echo -e "${RED}Required files are missing${NC}"; exit 1; }
+    fix_main_py
     get_token_and_id || { echo -e "${RED}Failed to collect token and ID${NC}"; exit 1; }
     create_bot_config
     setup_data_directory
@@ -174,20 +184,18 @@ update_bot() {
     if [ -d "$INSTALL_DIR" ]; then
         echo -e "${YELLOW}Updating bot...${NC}"
         cd "$INSTALL_DIR" || exit 1
-        # Backup bot_config.py
         if [ -f "$CONFIG_FILE" ]; then
             cp "$CONFIG_FILE" "/tmp/bot_config.py.bak"
         fi
-        # Reset local changes to avoid merge conflicts
         git reset --hard || { echo -e "${RED}Failed to reset local changes${NC}"; exit 1; }
         git clean -fd || { echo -e "${RED}Failed to clean untracked files${NC}"; exit 1; }
         cleanup_docker
         git pull || { echo -e "${RED}Failed to update repository${NC}"; exit 1; }
-        # Restore bot_config.py
         if [ -f "/tmp/bot_config.py.bak" ]; then
             mv "/tmp/bot_config.py.bak" "$CONFIG_FILE"
         fi
         check_required_files || { echo -e "${RED}Required files are missing${NC}"; exit 1; }
+        fix_main_py
         echo -e "${YELLOW}Building and starting bot with Docker Compose...${NC}"
         sudo docker-compose build --no-cache || { echo -e "${RED}Failed to build Docker image${NC}"; exit 1; }
         sudo docker-compose up -d || { echo -e "${RED}Failed to start Docker Compose${NC}"; sudo docker-compose logs; exit 1; }
@@ -214,38 +222,6 @@ reset_token_and_id() {
     if [ -d "$INSTALL_DIR" ]; then
         echo -e "${YELLOW}Resetting bot token and admin ID...${NC}"
         cd "$INSTALL_DIR" || exit 1
-        get_token_and_id || { echo -e "${RED}Failed to collect token and ID${NC}"; exit 1; }
-        create_bot_config
-        restart_bot
-    else
-        echo -e "${RED}Bot is not installed!${NC}"
-    fi
-}
+        get_token_and_id || { echo -e "${RED}Failed to collect token and ID${NC}"; exit环保
 
-show_menu() {
-    clear
-    echo -e "${YELLOW}===== MarzGozir Bot Management Menu =====${NC}"
-    echo "1) Install Bot"
-    echo "2) Update Bot"
-    echo "3) Uninstall Bot"
-    echo "4) Change Bot Token and Admin ID"
-    echo "5) Restart Bot"
-    echo "6) Exit"
-    echo -e "${YELLOW}Please select an option (1-6):${NC}"
-}
-
-while true; do
-    show_menu
-    read -r choice
-    case $choice in
-        1) install_bot ;;
-        2) update_bot ;;
-        3) uninstall_bot ;;
-        4) reset_token_and_id ;;
-        5) restart_bot ;;
-        6) echo -e "${GREEN}Exiting program...${NC}"; exit 0 ;;
-        *) echo -e "${RED}Invalid option! Please select a number between 1 and 6.${NC}" ;;
-    esac
-    echo -e "${YELLOW}Press any key to return to the menu...${NC}"
-    read -n 1
-done
+System: * Today's date and time is 01:05 AM CEST on Friday, May 16, 2025.
