@@ -4,6 +4,7 @@ import socket
 import asyncio
 from datetime import datetime, timezone
 from uuid import uuid4
+from typing import List, Tuple, Optional
 from database.db import get_panels
 from utils.formatting import format_traffic, format_expire_time
 from bot.menus import main_menu, user_action_menu
@@ -11,50 +12,75 @@ from bot_config import ADMIN_IDS
 from utils.message_utils import cleanup_messages
 from aiogram.fsm.context import FSMContext
 from aiogram import Bot, types
+from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 
 logger = logging.getLogger(__name__)
 
 def is_owner(chat_id: int) -> bool:
+    """Check if the user is an owner based on ADMIN_IDS."""
     return chat_id in ADMIN_IDS
 
-async def create_user_logic(chat_id: int, state: FSMContext, note: str):
+async def create_user_logic(chat_id: int, state: FSMContext, note: str) -> Tuple[Optional[str], Optional[str]]:
+    """
+    Create a new user in the selected Marzban panel.
+    
+    Args:
+        chat_id: Telegram chat ID of the user.
+        state: FSM context for managing bot state.
+        note: Optional note for the user.
+    
+    Returns:
+        Tuple containing (success_message, error_message).
+    """
     data = await state.get_data()
     username = data.get("username")
     data_limit = data.get("data_limit")
     expire_time = data.get("expire_time")
     expire_days = data.get("expire_days")
     selected_panel_alias = data.get("selected_panel_alias")
+    
     panels = get_panels(chat_id)
     panel = next((p for p in panels if p[0] == selected_panel_alias), None)
     if not panel:
         return None, "⚠️ پنل انتخاب‌شده یافت نشد."
+    
     try:
-        async with aiohttp.ClientSession() as session:
+        async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=10)) as session:
             headers = {"Authorization": f"Bearer {panel[2]}"}
+            
+            # Fetch inbound configurations
             async with session.get(f"{panel[1].rstrip('/')}/api/inbounds", headers=headers) as response:
                 inbounds_data = await response.json()
                 if response.status != 200:
                     raise ValueError(f"دریافت اینباند‌ها ناموفق: {inbounds_data.get('detail', 'No details')}")
-                inbounds_dict = {}
-                for protocol, settings in inbounds_data.items():
-                    inbounds_dict[protocol] = [inbound['tag'] for inbound in settings]
+                inbounds_dict = {
+                    protocol: [inbound['tag'] for inbound in settings]
+                    for protocol, settings in inbounds_data.items()
+                    if protocol in ["vless", "vmess"]
+                }
+            
+            # Create user data
             vless_id = str(uuid4())
+            vmess_id = str(uuid4())
             user_data = {
                 "username": username,
                 "proxies": {
-                    "vless": {
-                        "id": vless_id
-                    }
+                    "vless": {"id": vless_id},
+                    "vmess": {"id": vmess_id}
                 },
                 "inbounds": inbounds_dict,
                 "data_limit": data_limit,
                 "expire": expire_time,
                 "note": note
             }
+            
+            # Create user
             async with session.post(f"{panel[1].rstrip('/')}/api/user", json=user_data, headers=headers) as response:
                 result = await response.json()
                 if response.status != 200:
                     raise ValueError(f"ایجاد کاربر ناموفق: {result.get('detail', 'No details')}")
+            
+            # Fetch subscription URL
             async with session.get(f"{panel[1].rstrip('/')}/api/user/{username}", headers=headers) as response:
                 if response.status == 200:
                     user_data = await response.json()
@@ -66,14 +92,23 @@ async def create_user_logic(chat_id: int, state: FSMContext, note: str):
                         f"🔗 لینک اشتراک: {subscription_url}",
                         None
                     )
-                else:
-                    return "❌ نتوانستم لینک اشتراک را دریافت کنم.", None
+                return "❌ نتوانستم لینک اشتراک را دریافت کنم.", None
     except Exception as e:
-        logger.error(f"Create user error: {str(e)}")
+        logger.error(f"Create user error for {username}: {str(e)}")
         return None, f"❌ خطا در ایجاد کاربر: {str(e)}"
 
 async def show_user_info(query: types.CallbackQuery, state: FSMContext, username: str, chat_id: int, selected_panel_alias: str, bot: Bot):
-    from bot.handlers import cleanup_messages  
+    """
+    Display information about a specific user.
+    
+    Args:
+        query: Callback query from the user.
+        state: FSM context for managing bot state.
+        username: Username of the user to display.
+        chat_id: Telegram chat ID.
+        selected_panel_alias: Alias of the selected panel.
+        bot: Telegram bot instance.
+    """
     await cleanup_messages(bot, chat_id, state)
     panels = get_panels(chat_id)
     panel = next((p for p in panels if p[0] == selected_panel_alias), None)
@@ -81,16 +116,18 @@ async def show_user_info(query: types.CallbackQuery, state: FSMContext, username
         message = await bot.send_message(chat_id, "⚠️ پنل انتخاب‌شده یافت نشد.")
         await state.update_data(login_messages=[message.message_id])
         return
+    
     try:
-        async with aiohttp.ClientSession() as session:
+        async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=5)) as session:
             headers = {"Authorization": f"Bearer {panel[2]}"}
-            async with session.get(f"{panel[1].rstrip('/')}/api/user/{username}", headers=headers, timeout=5) as response:
+            async with session.get(f"{panel[1].rstrip('/')}/api/user/{username}", headers=headers) as response:
                 if response.status != 200:
                     result = await response.json()
                     message = await bot.send_message(chat_id, f"❌ خطا در دریافت اطلاعات: {result.get('detail', 'کاربر یافت نشد')}")
                     await state.update_data(login_messages=[message.message_id])
                     return
                 user = await response.json()
+                protocols = ", ".join(user.get("proxies", {}).keys()) or "هیچ"
                 response_text = (
                     f"👤 نام کاربری: {user['username']}\n"
                     f"📊 وضعیت: {user['status']}\n"
@@ -98,16 +135,27 @@ async def show_user_info(query: types.CallbackQuery, state: FSMContext, username
                     f"📊 حجم کل: {format_traffic(user.get('data_limit', 0)) if user.get('data_limit') else 'نامحدود'}\n"
                     f"⏰ زمان انقضا: {format_expire_time(user.get('expire'))}\n"
                     f"📝 یادداشت: {user.get('note', 'هیچ')}\n"
+                    f"🔌 پروتکل‌ها: {protocols}\n"
                     f"🔗 لینک اشتراک: {user.get('subscription_url', 'ناموجود')}"
                 )
                 message = await bot.send_message(chat_id, response_text, reply_markup=user_action_menu(username))
                 await state.update_data(login_messages=[message.message_id])
     except Exception as e:
-        logger.error(f"Show user info error: {str(e)}")
+        logger.error(f"Show user info error for {username}: {str(e)}")
         message = await bot.send_message(chat_id, f"❌ خطا در نمایش اطلاعات: {str(e)}")
         await state.update_data(login_messages=[message.message_id])
 
 async def delete_user_logic(query: types.CallbackQuery, state: FSMContext, username: str, chat_id: int, bot: Bot):
+    """
+    Delete a specific user from the panel.
+    
+    Args:
+        query: Callback query from the user.
+        state: FSM context for managing bot state.
+        username: Username of the user to delete.
+        chat_id: Telegram chat ID.
+        bot: Telegram bot instance.
+    """
     await cleanup_messages(bot, chat_id, state)
     data = await state.get_data()
     selected_panel_alias = data.get("selected_panel_alias")
@@ -116,14 +164,16 @@ async def delete_user_logic(query: types.CallbackQuery, state: FSMContext, usern
         await state.update_data(login_messages=[message.message_id])
         await state.clear()
         return
+    
     panels = get_panels(chat_id)
     panel = next((p for p in panels if p[0] == selected_panel_alias), None)
     if not panel:
         message = await bot.send_message(chat_id, "⚠️ پنل انتخاب‌شده یافت نشد.")
         await state.update_data(login_messages=[message.message_id])
         return
+    
     try:
-        async with aiohttp.ClientSession() as session:
+        async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=5)) as session:
             headers = {"Authorization": f"Bearer {panel[2]}"}
             async with session.delete(f"{panel[1].rstrip('/')}/api/user/{username}", headers=headers) as response:
                 if response.status == 200:
@@ -133,12 +183,22 @@ async def delete_user_logic(query: types.CallbackQuery, state: FSMContext, usern
                     result = await response.json()
                     raise ValueError(f"حذف کاربر ناموفق: {result.get('detail', 'No details')}")
     except Exception as e:
-        logger.error(f"Delete user error: {str(e)}")
+        logger.error(f"Delete user error for {username}: {str(e)}")
         message = await bot.send_message(chat_id, f"❌ خطا در حذف کاربر: {str(e)}")
         await state.update_data(login_messages=[message.message_id])
     await state.clear()
 
 async def disable_user_logic(query: types.CallbackQuery, state: FSMContext, username: str, chat_id: int, bot: Bot):
+    """
+    Disable a specific user in the panel.
+    
+    Args:
+        query: Callback query from the user.
+        state: FSM context for managing bot state.
+        username: Username of the user to disable.
+        chat_id: Telegram chat ID.
+        bot: Telegram bot instance.
+    """
     await cleanup_messages(bot, chat_id, state)
     data = await state.get_data()
     selected_panel_alias = data.get("selected_panel_alias")
@@ -147,20 +207,22 @@ async def disable_user_logic(query: types.CallbackQuery, state: FSMContext, user
         await state.update_data(login_messages=[message.message_id])
         await state.clear()
         return
+    
     panels = get_panels(chat_id)
     panel = next((p for p in panels if p[0] == selected_panel_alias), None)
     if not panel:
         message = await bot.send_message(chat_id, "⚠️ پنل انتخاب‌شده یافت نشد.")
         await state.update_data(login_messages=[message.message_id])
         return
+    
     try:
-        async with aiohttp.ClientSession() as session:
+        async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=5)) as session:
             headers = {"Authorization": f"Bearer {panel[2]}", "Content-Type": "application/json"}
             async with session.get(f"{panel[1].rstrip('/')}/api/user/{username}", headers=headers) as response:
-                if response.status == 200:
-                    current_user = await response.json()
-                else:
+                if response.status != 200:
                     raise ValueError("کاربر یافت نشد")
+                current_user = await response.json()
+            
             current_user["status"] = "disabled"
             async with session.put(f"{panel[1].rstrip('/')}/api/user/{username}", json=current_user, headers=headers) as response:
                 if response.status == 200:
@@ -171,11 +233,21 @@ async def disable_user_logic(query: types.CallbackQuery, state: FSMContext, user
                     result = await response.json()
                     raise ValueError(f"خاموش کردن کاربر ناموفق: {result.get('detail', 'No details')}")
     except Exception as e:
-        logger.error(f"Disable user error: {str(e)}")
+        logger.error(f"Disable user error for {username}: {str(e)}")
         message = await bot.send_message(chat_id, f"❌ خطا در غیرفعال کردن کاربر: {str(e)}")
         await state.update_data(login_messages=[message.message_id])
 
 async def enable_user_logic(query: types.CallbackQuery, state: FSMContext, username: str, chat_id: int, bot: Bot):
+    """
+    Enable a specific user in the panel.
+    
+    Args:
+        query: Callback query from the user.
+        state: FSM context for managing bot state.
+        username: Username of the user to enable.
+        chat_id: Telegram chat ID.
+        bot: Telegram bot instance.
+    """
     await cleanup_messages(bot, chat_id, state)
     data = await state.get_data()
     selected_panel_alias = data.get("selected_panel_alias")
@@ -184,20 +256,22 @@ async def enable_user_logic(query: types.CallbackQuery, state: FSMContext, usern
         await state.update_data(login_messages=[message.message_id])
         await state.clear()
         return
+    
     panels = get_panels(chat_id)
     panel = next((p for p in panels if p[0] == selected_panel_alias), None)
     if not panel:
         message = await bot.send_message(chat_id, "⚠️ پنل انتخاب‌شده یافت نشد.")
         await state.update_data(login_messages=[message.message_id])
         return
+    
     try:
-        async with aiohttp.ClientSession() as session:
+        async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=5)) as session:
             headers = {"Authorization": f"Bearer {panel[2]}", "Content-Type": "application/json"}
             async with session.get(f"{panel[1].rstrip('/')}/api/user/{username}", headers=headers) as response:
-                if response.status == 200:
-                    current_user = await response.json()
-                else:
+                if response.status != 200:
                     raise ValueError("کاربر یافت نشد")
+                current_user = await response.json()
+            
             current_user["status"] = "active"
             async with session.put(f"{panel[1].rstrip('/')}/api/user/{username}", json=current_user, headers=headers) as response:
                 if response.status == 200:
@@ -208,11 +282,21 @@ async def enable_user_logic(query: types.CallbackQuery, state: FSMContext, usern
                     result = await response.json()
                     raise ValueError(f"روشن کردن کاربر ناموفق: {result.get('detail', 'No details')}")
     except Exception as e:
-        logger.error(f"Enable user error: {str(e)}")
+        logger.error(f"Enable user error for {username}: {str(e)}")
         message = await bot.send_message(chat_id, f"❌ خطا در فعال کردن کاربر: {str(e)}")
         await state.update_data(login_messages=[message.message_id])
 
 async def delete_configs_logic(query: types.CallbackQuery, state: FSMContext, username: str, chat_id: int, bot: Bot):
+    """
+    Delete all configurations (inbounds) for a specific user.
+    
+    Args:
+        query: Callback query from the user.
+        state: FSM context for managing bot state.
+        username: Username of the user.
+        chat_id: Telegram chat ID.
+        bot: Telegram bot instance.
+    """
     await cleanup_messages(bot, chat_id, state)
     data = await state.get_data()
     selected_panel_alias = data.get("selected_panel_alias")
@@ -221,22 +305,24 @@ async def delete_configs_logic(query: types.CallbackQuery, state: FSMContext, us
         await state.update_data(login_messages=[message.message_id])
         await state.clear()
         return
+    
     panels = get_panels(chat_id)
     panel = next((p for p in panels if p[0] == selected_panel_alias), None)
     if not panel:
         message = await bot.send_message(chat_id, "⚠️ پنل انتخاب‌شده یافت نشد.")
         await state.update_data(login_messages=[message.message_id])
         return
+    
     try:
-        async with aiohttp.ClientSession() as session:
+        async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=5)) as session:
             headers = {"Authorization": f"Bearer {panel[2]}", "Content-Type": "application/json"}
             async with session.get(f"{panel[1].rstrip('/')}/api/user/{username}", headers=headers) as response:
-                if response.status == 200:
-                    current_user = await response.json()
-                else:
+                if response.status != 200:
                     message = await bot.send_message(chat_id, "❌ کاربر یافت نشد.")
                     await state.update_data(login_messages=[message.message_id])
                     return
+                current_user = await response.json()
+            
             current_user["inbounds"] = {}
             async with session.put(f"{panel[1].rstrip('/')}/api/user/{username}", json=current_user, headers=headers) as response:
                 if response.status == 200:
@@ -248,13 +334,25 @@ async def delete_configs_logic(query: types.CallbackQuery, state: FSMContext, us
                     message = await bot.send_message(chat_id, f"❌ خطا در حذف کانفیگ‌ها: {result.get('detail', 'No details')}")
                     await state.update_data(login_messages=[message.message_id])
     except Exception as e:
-        logger.error(f"Error deleting configs: {str(e)}")
+        logger.error(f"Error deleting configs for {username}: {str(e)}")
         message = await bot.send_message(chat_id, f"❌ خطا: {str(e)}")
         await state.update_data(login_messages=[message.message_id])
 
-async def fetch_users_batch(panel_url: str, token: str, offset: int, limit: int) -> list:
+async def fetch_users_batch(panel_url: str, token: str, offset: int, limit: int) -> List[dict]:
+    """
+    Fetch a batch of users from the Marzban API.
+    
+    Args:
+        panel_url: URL of the Marzban panel.
+        token: Authorization token for the API.
+        offset: Offset for pagination.
+        limit: Number of users to fetch.
+    
+    Returns:
+        List of user dictionaries.
+    """
     try:
-        async with aiohttp.ClientSession() as session:
+        async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=10)) as session:
             headers = {"Authorization": f"Bearer {token}"}
             params = {"offset": offset, "limit": limit}
             async with session.get(f"{panel_url.rstrip('/')}/api/users", headers=headers, params=params) as response:
@@ -262,24 +360,39 @@ async def fetch_users_batch(panel_url: str, token: str, offset: int, limit: int)
                     result = await response.json()
                     raise ValueError(f"دریافت کاربران ناموفق: {result.get('detail', 'No details')}")
                 users_data = await response.json()
+                if "users" not in users_data:
+                    raise ValueError("پاسخ API شامل کلید 'users' نیست")
                 return users_data.get("users", [])
     except Exception as e:
-        logger.error(f"Error fetching users batch: {str(e)}")
+        logger.error(f"Error fetching users batch (offset={offset}, limit={limit}): {str(e)}")
         raise
 
 async def get_users_stats(panel_url: str, token: str, force_refresh: bool = False) -> dict:
+    """
+    Get statistics about users in the panel.
+    
+    Args:
+        panel_url: URL of the Marzban panel.
+        token: Authorization token for the API.
+        force_refresh: Whether to bypass cache.
+    
+    Returns:
+        Dictionary with user statistics.
+    """
     from utils.cache import get_users_stats_cache, set_users_stats_cache
     from bot_config import CACHE_DURATION
+    
     cache_key = f"{panel_url}:{token}"
     if not force_refresh:
         cached_stats = get_users_stats_cache(panel_url, token, CACHE_DURATION)
         if cached_stats:
             return cached_stats
+    
     stats = {"total": 0, "active": 0, "inactive": 0, "expired": 0, "limited": 0}
     try:
-        async with aiohttp.ClientSession() as session:
+        async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=3)) as session:
             headers = {"Authorization": f"Bearer {token}"}
-            async with session.get(f"{panel_url.rstrip('/')}/api/stats", headers=headers, timeout=3) as response:
+            async with session.get(f"{panel_url.rstrip('/')}/api/stats", headers=headers) as response:
                 if response.status == 200:
                     data = await response.json()
                     required_keys = ["total", "active", "inactive", "expired", "limited"]
@@ -315,5 +428,164 @@ async def get_users_stats(panel_url: str, token: str, force_refresh: bool = Fals
         except Exception as e:
             logger.error(f"Manual count failed: {str(e)}")
             return stats
+    
     set_users_stats_cache(panel_url, token, stats)
     return stats
+
+async def request_delete_confirmation(chat_id: int, action: str, selected_panel_alias: str, bot: Bot, state: FSMContext):
+    """
+    Request confirmation for batch delete operations.
+    
+    Args:
+        chat_id: Telegram chat ID.
+        action: Type of delete action ('expired' or 'exhausted').
+        selected_panel_alias: Alias of the selected panel.
+        bot: Telegram bot instance.
+        state: FSM context for managing bot state.
+    """
+    confirm_keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [
+            InlineKeyboardButton(text="✅ تأیید", callback_data=f"confirm_delete:{action}:{selected_panel_alias}"),
+            InlineKeyboardButton(text="❌ لغو", callback_data=f"cancel_delete:{selected_panel_alias}")
+        ]
+    ])
+    message = await bot.send_message(
+        chat_id,
+        f"آیا مطمئنید که می‌خواهید کاربران {'منقضی‌شده' if action == 'expired' else 'بدون حجم'} را حذف کنید؟",
+        reply_markup=confirm_keyboard
+    )
+    await state.update_data(login_messages=[message.message_id], pending_delete_action=action)
+
+async def delete_expired_users(chat_id: int, selected_panel_alias: str, bot: Bot, state: FSMContext, confirm: bool = False) -> bool:
+    """
+    Delete users whose expiration time has passed.
+    
+    Args:
+        chat_id: Telegram chat ID.
+        selected_panel_alias: Alias of the selected panel.
+        bot: Telegram bot instance.
+        state: FSM context for managing bot state.
+        confirm: Whether the action has been confirmed.
+    
+    Returns:
+        Boolean indicating success.
+    """
+    if not confirm:
+        await request_delete_confirmation(chat_id, "expired", selected_panel_alias, bot, state)
+        return False
+    
+    panels = get_panels(chat_id)
+    panel = next((p for p in panels if p[0] == selected_panel_alias), None)
+    if not panel:
+        await bot.send_message(chat_id, "⚠️ پنل انتخاب‌شده یافت نشد.")
+        return False
+    
+    try:
+        async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=30)) as session:
+            headers = {"Authorization": f"Bearer {panel[2]}"}
+            offset = 0
+            limit = 100  # Reduced limit for better performance
+            now = int(datetime.now(timezone.utc).timestamp())
+            deleted_count = 0
+            deleted_users = []
+            
+            while True:
+                params = {"offset": offset, "limit": limit}
+                async with session.get(f"{panel[1].rstrip('/')}/api/users", headers=headers, params=params) as response:
+                    if response.status != 200:
+                        result = await response.json()
+                        await bot.send_message(chat_id, f"❌ خطا در دریافت کاربران: {result.get('detail', 'No details')}")
+                        return False
+                    users_data = await response.json()
+                    users = users_data.get("users", [])
+                    if not users:
+                        break
+                    for user in users:
+                        expire_time = user.get("expire", 0) or 0
+                        if expire_time > 0 and expire_time < now:
+                            username = user.get("username", "unknown")
+                            async with session.delete(f"{panel[1].rstrip('/')}/api/user/{username}", headers=headers) as delete_response:
+                                if delete_response.status == 200:
+                                    deleted_count += 1
+                                    deleted_users.append(username)
+                                else:
+                                    logger.warning(f"Failed to delete user {username}: {await delete_response.json()}")
+                    offset += limit
+            
+            # Prepare response
+            response_text = f"🗑 {deleted_count} کاربر با زمان منقضی با موفقیت حذف شدند."
+            if deleted_users:
+                response_text += f"\nکاربران حذف‌شده: {', '.join(deleted_users[:10])}{'...' if len(deleted_users) > 10 else ''}"
+            await bot.send_message(chat_id, response_text)
+            return True
+    except Exception as e:
+        logger.error(f"Error deleting expired users: {str(e)}")
+        await bot.send_message(chat_id, f"❌ خطا در حذف کاربران منقضی: {str(e)}")
+        return False
+
+async def delete_data_exhausted_users(chat_id: int, selected_panel_alias: str, bot: Bot, state: FSMContext, confirm: bool = False) -> bool:
+    """
+    Delete users who have exhausted their data limit.
+    
+    Args:
+        chat_id: Telegram chat ID.
+        selected_panel_alias: Alias of the selected panel.
+        bot: Telegram bot instance.
+        state: FSM context for managing bot state.
+        confirm: Whether the action has been confirmed.
+    
+    Returns:
+        Boolean indicating success.
+    """
+    if not confirm:
+        await request_delete_confirmation(chat_id, "exhausted", selected_panel_alias, bot, state)
+        return False
+    
+    panels = get_panels(chat_id)
+    panel = next((p for p in panels if p[0] == selected_panel_alias), None)
+    if not panel:
+        await bot.send_message(chat_id, "⚠️ پنل انتخاب‌شده یافت نشد.")
+        return False
+    
+    try:
+        async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=30)) as session:
+            headers = {"Authorization": f"Bearer {panel[2]}"}
+            offset = 0
+            limit = 100  # Reduced limit for better performance
+            deleted_count = 0
+            deleted_users = []
+            
+            while True:
+                params = {"offset": offset, "limit": limit}
+                async with session.get(f"{panel[1].rstrip('/')}/api/users", headers=headers, params=params) as response:
+                    if response.status != 200:
+                        result = await response.json()
+                        await bot.send_message(chat_id, f"❌ خطا در دریافت کاربران: {result.get('detail', 'No details')}")
+                        return False
+                    users_data = await response.json()
+                    users = users_data.get("users", [])
+                    if not users:
+                        break
+                    for user in users:
+                        data_limit = user.get("data_limit", 0) or 0
+                        used_traffic = user.get("used_traffic", 0) or 0
+                        if data_limit > 0 and used_traffic >= data_limit:
+                            username = user.get("username", "unknown")
+                            async with session.delete(f"{panel[1].rstrip('/')}/api/user/{username}", headers=headers) as delete_response:
+                                if delete_response.status == 200:
+                                    deleted_count += 1
+                                    deleted_users.append(username)
+                                else:
+                                    logger.warning(f"Failed to delete user {username}: {await delete_response.json()}")
+                    offset += limit
+            
+            # Prepare response
+            response_text = f"🗑 {deleted_count} کاربر با حجم مصرف‌شده با موفقیت حذف شدند."
+            if deleted_users:
+                response_text += f"\nکاربران حذف‌شده: {', '.join(deleted_users[:10])}{'...' if len(deleted_users) > 10 else ''}"
+            await bot.send_message(chat_id, response_text)
+            return True
+    except Exception as e:
+        logger.error(f"Error deleting data exhausted users: {str(e)}")
+        await bot.send_message(chat_id, f"❌ خطا در حذف کاربران با حجم مصرف‌شده: {str(e)}")
+        return False
