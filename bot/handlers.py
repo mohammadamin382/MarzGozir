@@ -7,18 +7,18 @@ from aiogram import Bot, types
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 from bot_config import VERSION, ADMIN_IDS
-from database.db import get_panels, add_admin, remove_admin, get_admins, delete_panel, save_panel
-from bot.menus import config_selection_menu, delete_panel_menu, main_menu, admin_management_menu, note_menu, panel_selection_menu, panel_action_menu, user_action_menu, create_menu_layout
+from database.db import get_panels, add_admin, remove_admin, get_admins, delete_panel, save_panel, set_log_channel, get_log_channel
+from bot.menus import config_selection_menu, delete_panel_menu, main_menu, admin_management_menu, note_menu, panel_selection_menu, panel_action_menu, user_action_menu, create_menu_layout, panel_login_menu, protocol_selection_menu
 from bot.states import Form
 from api.marzban_api import create_user_logic, show_user_info, delete_user_logic, disable_user_logic, enable_user_logic, delete_configs_logic, get_users_stats
 from utils.message_utils import cleanup_messages
 from utils.formatting import format_traffic, format_expire_time
 from utils.validation import validate_panel_url
+from utils.activity_logger import log_to_channel
 from marzpy import Marzban
 import aiohttp
 import socket
 from aiogram.types import InlineKeyboardButton
-from bot.menus import main_menu, admin_management_menu, panel_selection_menu, panel_action_menu, user_action_menu, create_menu_layout, panel_login_menu
 
 logger = logging.getLogger(__name__)
 
@@ -30,17 +30,6 @@ def is_admin(chat_id: int) -> bool:
         return True
     admins = get_admins()
     return chat_id in admins
-
-async def cleanup_messages(bot: Bot, chat_id: int, state: FSMContext):
-    data = await state.get_data()
-    login_messages = data.get("login_messages", [])
-    async def delete_message(message_id: int):
-        try:
-            await bot.delete_message(chat_id=chat_id, message_id=message_id)
-        except Exception as e:
-            logger.warning(f"Failed to delete message {message_id}: {str(e)}")
-    await asyncio.gather(*[delete_message(message_id) for message_id in login_messages])
-    await state.update_data(login_messages=[])
 
 async def start(message: types.Message, state: FSMContext, bot: Bot):
     await cleanup_messages(bot, message.from_user.id, state)
@@ -56,7 +45,7 @@ async def start(message: types.Message, state: FSMContext, bot: Bot):
     else:
         buttons = [
             InlineKeyboardButton(text="➕ افزودن پنل جدید", callback_data="add_server"),
-            InlineKeyboardButton(text="👨‍💼 مدیریت مدیران", callback_data="manage_admins") if is_owner(chat_id) else None
+            InlineKeyboardButton(text="👨‍💼 بخش مدیریت", callback_data="manage_admins") if is_owner(chat_id) else None
         ]
         buttons = [b for b in buttons if b]
         message = await bot.send_message(chat_id, f"🎉 به ربات مدیر خوش آمدید (نسخه {VERSION})", reply_markup=create_menu_layout(buttons))
@@ -87,6 +76,7 @@ async def show_user_info_for_owner(message: types.Message, state: FSMContext, ch
     message = await bot.send_message(chat_id, response_text, reply_markup=admin_management_menu())
     await state.update_data(login_messages=[message.message_id])
     await state.clear()
+    await log_to_channel(bot, chat_id, "مشاهده اطلاعات پنل‌ها", f"کاربر {chat_id} اطلاعات پنل‌ها را مشاهده کرد.")
 
 async def button_callback(query: types.CallbackQuery, state: FSMContext, bot: Bot):
     await query.answer()
@@ -99,11 +89,12 @@ async def button_callback(query: types.CallbackQuery, state: FSMContext, bot: Bo
         await state.update_data(login_messages=[message.message_id])
     elif data == "manage_admins":
         if not is_owner(chat_id):
-            message = await bot.send_message(chat_id, "🚫 فقط مالک می‌تواند مدیران را مدیریت کند.")
+            message = await bot.send_message(chat_id, "🚫 فقط مالک می‌تواند بخش مدیریت را مشاهده کند.")
             await state.update_data(login_messages=[message.message_id])
             return
-        message = await bot.send_message(chat_id, "👨‍💼 مدیریت مدیران:", reply_markup=admin_management_menu())
+        message = await bot.send_message(chat_id, "👨‍💼 بخش مدیریت:", reply_markup=admin_management_menu())
         await state.update_data(login_messages=[message.message_id])
+        await log_to_channel(bot, chat_id, "ورود به بخش مدیریت", "کاربر به بخش مدیریت ادمین‌ها وارد شد.")
     elif data == "add_admin":
         if not is_owner(chat_id):
             message = await bot.send_message(chat_id, "🚫 فقط مالک می‌تواند مدیران را مدیریت کند.")
@@ -134,6 +125,7 @@ async def button_callback(query: types.CallbackQuery, state: FSMContext, bot: Bo
         remove_admin(admin_id)
         message = await bot.send_message(chat_id, f"🗑 مدیر با آیدی {admin_id} با موفقیت حذف شد.", reply_markup=admin_management_menu())
         await state.update_data(login_messages=[message.message_id])
+        await log_to_channel(bot, chat_id, "حذف مدیر", f"مدیر با آیدی {admin_id} حذف شد.")
     elif data == "user_info":
         if not is_owner(chat_id):
             message = await bot.send_message(chat_id, "🚫 فقط مالک می‌تواند اطلاعات کاربر را ببیند.")
@@ -141,6 +133,16 @@ async def button_callback(query: types.CallbackQuery, state: FSMContext, bot: Bo
             return
         await state.set_state(Form.awaiting_user_info)
         message = await bot.send_message(chat_id, "📊 لطفاً آیدی عددی کاربر را وارد کنید:")
+        await state.update_data(login_messages=[message.message_id])
+    elif data == "set_log_channel":
+        if not is_owner(chat_id):
+            message = await bot.send_message(chat_id, "🚫 فقط مالک می‌تواند کانال لاگ را تنظیم کند.")
+            await state.update_data(login_messages=[message.message_id])
+            return
+        current_channel = get_log_channel()
+        current_text = f"📋 کانال لاگ فعلی: {current_channel if current_channel else 'تنظیم نشده'}\n" if current_channel else "📋 هیچ کانال لاگی تنظیم نشده است.\n"
+        await state.set_state(Form.awaiting_log_channel)
+        message = await bot.send_message(chat_id, f"{current_text}لطفاً آیدی عددی کانال پرایویت را وارد کنید (مثل -1001234567890):")
         await state.update_data(login_messages=[message.message_id])
     elif data == "manage_panels":
         panels = get_panels(chat_id)
@@ -171,6 +173,7 @@ async def button_callback(query: types.CallbackQuery, state: FSMContext, bot: Bo
             message = await bot.send_message(chat_id, f"🗑 پنل '{alias}' با موفقیت حذف شد. هیچ پنلی باقی نمانده است.", reply_markup=main_menu(is_owner(chat_id)))
             await state.update_data(login_messages=[message.message_id])
         await state.clear()
+        await log_to_channel(bot, chat_id, "حذف پنل", f"پنل با نام مستعار {alias} حذف شد.")
     elif data.startswith("select_panel:"):
         alias = data.split(":", 1)[1]
         await state.update_data(selected_panel_alias=alias)
@@ -194,6 +197,7 @@ async def button_callback(query: types.CallbackQuery, state: FSMContext, bot: Bo
         )
         message = await bot.send_message(chat_id, response_text, reply_markup=panel_action_menu())
         await state.update_data(login_messages=[message.message_id])
+        await log_to_channel(bot, chat_id, "انتخاب پنل", f"پنل با نام مستعار {alias} انتخاب شد.")
     elif data == "back_to_panel_selection":
         panels = get_panels(chat_id)
         if not panels:
@@ -223,6 +227,7 @@ async def button_callback(query: types.CallbackQuery, state: FSMContext, bot: Bo
         if success_msg:
             message = await bot.send_message(chat_id, success_msg, reply_markup=main_menu(is_owner(chat_id)))
             await state.update_data(login_messages=[message.message_id])
+            await log_to_channel(bot, chat_id, "ایجاد کاربر", f"کاربر جدید با موفقیت ایجاد شد: {success_msg}")
         else:
             message = await bot.send_message(chat_id, error_msg)
             await state.update_data(login_messages=[message.message_id])
@@ -230,15 +235,31 @@ async def button_callback(query: types.CallbackQuery, state: FSMContext, bot: Bo
     elif data.startswith("delete_user:"):
         username = data.split(":", 1)[1]
         await delete_user_logic(query, state, username, chat_id, bot)
+        await log_to_channel(bot, chat_id, "حذف کاربر", f"کاربر {username} حذف شد.")
     elif data.startswith("disable_user:"):
         username = data.split(":", 1)[1]
         await disable_user_logic(query, state, username, chat_id, bot)
+        await log_to_channel(bot, chat_id, "غیرفعال کردن کاربر", f"کاربر {username} غیرفعال شد.")
     elif data.startswith("enable_user:"):
         username = data.split(":", 1)[1]
         await enable_user_logic(query, state, username, chat_id, bot)
+        await log_to_channel(bot, chat_id, "فعال کردن کاربر", f"کاربر {username} فعال شد.")
     elif data.startswith("manage_configs:"):
         username = data.split(":", 1)[1]
         await state.update_data(existing_username=username)
+        await state.set_state(Form.awaiting_protocol_selection)
+        data = await state.get_data()
+        selected_panel_alias = data.get("selected_panel_alias")
+        if not selected_panel_alias:
+            message = await bot.send_message(chat_id, "⚠️ لطفاً ابتدا یک پنل انتخاب کنید.", reply_markup=main_menu(is_owner(chat_id)))
+            await state.update_data(login_messages=[message.message_id])
+            await state.clear()
+            return
+        message = await bot.send_message(chat_id, f"⚙️ لطفاً پروتکل موردنظر برای کاربر {username} را انتخاب کنید:", reply_markup=protocol_selection_menu(username))
+        await state.update_data(login_messages=[message.message_id])
+    elif data.startswith("select_protocol:"):
+        protocol, username = data.split(":")[1], data.split(":")[2]
+        await state.update_data(selected_protocol=protocol)
         await state.set_state(Form.awaiting_inbounds_selection_for_existing_user)
         data = await state.get_data()
         selected_panel_alias = data.get("selected_panel_alias")
@@ -261,9 +282,10 @@ async def button_callback(query: types.CallbackQuery, state: FSMContext, bot: Bo
                     if response.status == 200:
                         user_data = await response.json()
                         current_inbounds = []
-                        for protocol, settings in user_data.get("inbounds", {}).items():
-                            for tag in settings:
-                                current_inbounds.append(f"{protocol}:{tag}")
+                        for proto, settings in user_data.get("inbounds", {}).items():
+                            if proto == protocol:
+                                for tag in settings:
+                                    current_inbounds.append(f"{proto}:{tag}")
                     else:
                         message = await bot.send_message(chat_id, "❌ کاربر یافت نشد.")
                         await state.update_data(login_messages=[message.message_id])
@@ -273,43 +295,72 @@ async def button_callback(query: types.CallbackQuery, state: FSMContext, bot: Bo
                     if response.status == 200:
                         inbounds_data = await response.json()
                         available_inbounds = []
-                        for protocol, settings in inbounds_data.items():
-                            for inbound in settings:
-                                available_inbounds.append(f"{protocol}:{inbound['tag']}")
+                        for proto, settings in inbounds_data.items():
+                            if proto == protocol:
+                                for inbound in settings:
+                                    available_inbounds.append(f"{proto}:{inbound['tag']}")
                     else:
                         message = await bot.send_message(chat_id, "❌ نتوانستم اینباند‌ها را دریافت کنم.")
                         await state.update_data(login_messages=[message.message_id])
                         await state.clear()
                         return
-                await state.update_data(selected_inbounds=current_inbounds, available_inbounds=available_inbounds)
-                message = await bot.send_message(chat_id, f"⚙️ انتخاب کانفیگ‌ها برای کاربر {username}:", reply_markup=config_selection_menu(available_inbounds, current_inbounds, username))
+                await state.update_data(selected_inbounds=current_inbounds, available_inbounds=available_inbounds, selected_panel_alias=selected_panel_alias)
+                message = await bot.send_message(chat_id, f"⚙️ انتخاب اینباندهای {protocol} برای کاربر {username}:", reply_markup=config_selection_menu(available_inbounds, current_inbounds, username))
                 await state.update_data(login_messages=[message.message_id])
         except Exception as e:
-            logger.error(f"Error managing configs: {str(e)}")
-            message = await bot.send_message(chat_id, f"❌ خطا: {str(e)}")
+            logger.error(f"Error managing inbounds: {str(e)}")
+            message = await bot.send_message(chat_id, f"❌ خطا در مدیریت اینباند‌ها: {str(e)}")
             await state.update_data(login_messages=[message.message_id])
             await state.clear()
     elif data.startswith("toggle_inbound:"):
         parts = data.split(":")
-        if len(parts) == 3:
-            inbound, username = parts[1], parts[2]
-            data = await state.get_data()
-            selected_inbounds = data.get("selected_inbounds", [])
-            if inbound in selected_inbounds:
-                selected_inbounds.remove(inbound)
-            else:
-                selected_inbounds.append(inbound)
-            await state.update_data(selected_inbounds=selected_inbounds)
-            available_inbounds = data.get("available_inbounds", [])
-            message = await bot.send_message(chat_id, f"⚙️ انتخاب کانفیگ‌ها برای کاربر {username}:", reply_markup=config_selection_menu(available_inbounds, selected_inbounds, username))
-            await state.update_data(login_messages=[message.message_id])
+        if len(parts) < 3:
+            logger.error(f"Invalid toggle_inbound callback data: {data}")
+            await query.answer("❌ فرمت داده نامعتبر است", show_alert=True)
+            return
+        inbound = parts[1]
+        username = parts[-1]
+        data = await state.get_data()
+        selected_inbounds = data.get("selected_inbounds", [])
+        available_inbounds = data.get("available_inbounds", [])
+        protocol = data.get("selected_protocol")
+        selected_panel_alias = data.get("selected_panel_alias")
+        if not protocol or not selected_panel_alias:
+            logger.error("No protocol or panel selected in state")
+            await query.answer("❌ پروتکل یا پنل انتخاب نشده است", show_alert=True)
+            return
+        original_inbound = next((ai for ai in available_inbounds if re.sub(r'[^\w\-]', '_', ai) == inbound), inbound)
+        action = "فعال شد" if original_inbound not in selected_inbounds else "غیرفعال شد"
+        if original_inbound in selected_inbounds:
+            selected_inbounds.remove(original_inbound)
         else:
-            await query.answer("❌ داده نامعتبر", show_alert=True)
+            selected_inbounds.append(original_inbound)
+        await state.update_data(selected_inbounds=selected_inbounds)
+        message_text = (
+            f"✅ اینباند '{original_inbound}' {action}.\n"
+            f"اینباند دیگه هم مد نظرت هست 👀\n"
+            f"⚙️ انتخاب اینباندهای {protocol} برای کاربر {username}:"
+        )
+        try:
+            await query.message.edit_text(
+                message_text,
+                reply_markup=config_selection_menu(available_inbounds, selected_inbounds, username)
+            )
+        except Exception as e:
+            logger.warning(f"Failed to edit message for toggle_inbound: {str(e)}")
+            message = await bot.send_message(
+                chat_id,
+                message_text,
+                reply_markup=config_selection_menu(available_inbounds, selected_inbounds, username)
+            )
+            await state.update_data(login_messages=[message.message_id])
+        await log_to_channel(bot, chat_id, "تغییر اینباند", f"اینباند {original_inbound} برای کاربر {username} {action}.")
     elif data.startswith("confirm_inbounds_for_existing:"):
         username = data.split(":", 1)[1]
         data = await state.get_data()
         selected_inbounds = data.get("selected_inbounds", [])
         selected_panel_alias = data.get("selected_panel_alias")
+        protocol = data.get("selected_protocol")
         if not selected_panel_alias:
             message = await bot.send_message(chat_id, "⚠️ لطفاً ابتدا یک پنل انتخاب کنید.", reply_markup=main_menu(is_owner(chat_id)))
             await state.update_data(login_messages=[message.message_id])
@@ -333,31 +384,39 @@ async def button_callback(query: types.CallbackQuery, state: FSMContext, bot: Bo
                         await state.update_data(login_messages=[message.message_id])
                         await state.clear()
                         return
-                inbounds_dict = {}
-                for inbound in selected_inbounds:
-                    protocol, tag = inbound.split(":")
-                    if protocol not in inbounds_dict:
-                        inbounds_dict[protocol] = []
-                    inbounds_dict[protocol].append(tag)
+                inbounds_dict = current_user.get("inbounds", {})
+                inbounds_dict[protocol] = [inbound.split(":")[1] for inbound in selected_inbounds if inbound.startswith(protocol + ":")]
                 current_user["inbounds"] = inbounds_dict
                 async with session.put(f"{panel[1].rstrip('/')}/api/user/{username}", json=current_user, headers=headers) as response:
                     if response.status == 200:
-                        message = await bot.send_message(chat_id, f"✅ کانفیگ‌ها برای کاربر '{username}' با موفقیت به‌روزرسانی شد.")
+                        message = await bot.send_message(chat_id, f"✅ اینباندهای {protocol} برای کاربر '{username}' با موفقیت به‌روزرسانی شد.")
                         await state.update_data(login_messages=[message.message_id])
                         await show_user_info(query, state, username, chat_id, selected_panel_alias, bot)
+                        await log_to_channel(bot, chat_id, "به‌روزرسانی اینباند‌ها", f"اینباندهای {protocol} برای کاربر {username} به‌روزرسانی شد.")
                     else:
                         result = await response.json()
-                        message = await bot.send_message(chat_id, f"❌ خطا در به‌روزرسانی کانفیگ‌ها: {result.get('detail', 'No details')}")
+                        message = await bot.send_message(chat_id, f"❌ خطا در به‌روزرسانی اینباند‌ها: {result.get('detail', 'No details')}")
                         await state.update_data(login_messages=[message.message_id])
             await state.clear()
         except Exception as e:
             logger.error(f"Error confirming inbounds: {str(e)}")
-            message = await bot.send_message(chat_id, f"❌ خطا: {str(e)}")
+            message = await bot.send_message(chat_id, f"❌ خطا در تأیید اینباند‌ها: {str(e)}")
             await state.update_data(login_messages=[message.message_id])
             await state.clear()
+    elif data.startswith("back_to_user_menu:"):
+        username = data.split(":", 1)[1]
+        data = await state.get_data()
+        selected_panel_alias = data.get("selected_panel_alias")
+        if not selected_panel_alias:
+            message = await bot.send_message(chat_id, "⚠️ لطفاً ابتدا یک پنل انتخاب کنید.", reply_markup=main_menu(is_owner(chat_id)))
+            await state.update_data(login_messages=[message.message_id])
+            await state.clear()
+            return
+        await show_user_info(query, state, username, chat_id, selected_panel_alias, bot)
     elif data.startswith("delete_configs:"):
         username = data.split(":", 1)[1]
         await delete_configs_logic(query, state, username, chat_id, bot)
+        await log_to_channel(bot, chat_id, "حذف کانفیگ‌ها", f"کانفیگ‌های کاربر {username} حذف شد.")
     elif data.startswith("regenerate_link:"):
         username = data.split(":", 1)[1]
         data = await state.get_data()
@@ -390,6 +449,7 @@ async def button_callback(query: types.CallbackQuery, state: FSMContext, bot: Bo
                             message = await bot.send_message(chat_id, f"🔄 لینک جدید برای کاربر '{username}':\n{subscription_url}")
                             await state.update_data(login_messages=[message.message_id])
                             await show_user_info(query, state, username, chat_id, selected_panel_alias, bot)
+                            await log_to_channel(bot, chat_id, "تولید لینک جدید", f"لینک اشتراک برای کاربر {username} تولید شد.")
                         else:
                             message = await bot.send_message(chat_id, "❌ لینک اشتراک در دسترس نیست.")
                             await state.update_data(login_messages=[message.message_id])
@@ -436,6 +496,7 @@ async def message_handler(message: types.Message, state: FSMContext, bot: Bot):
             add_admin(new_admin_id)
             message = await bot.send_message(chat_id, f"✅ مدیر با آیدی {new_admin_id} با موفقیت اضافه شد.", reply_markup=admin_management_menu())
             await state.update_data(login_messages=[message.message_id])
+            await log_to_channel(bot, chat_id, "افزودن مدیر", f"مدیر با آیدی {new_admin_id} اضافه شد.")
             await state.clear()
         except ValueError:
             message = await bot.send_message(chat_id, "⚠️ لطفاً یک آیدی عددی معتبر وارد کنید.")
@@ -444,6 +505,26 @@ async def message_handler(message: types.Message, state: FSMContext, bot: Bot):
         try:
             user_id = int(text.strip())
             await show_user_info_for_owner(message, state, user_id, bot)
+        except ValueError:
+            message = await bot.send_message(chat_id, "⚠️ لطفاً یک آیدی عددی معتبر وارد کنید.")
+            await state.update_data(login_messages=[message.message_id])
+    elif current_state == Form.awaiting_log_channel.state:
+        try:
+            channel_id = int(text.strip())
+            if not str(channel_id).startswith('-100'):
+                message = await bot.send_message(chat_id, "⚠️ آیدی کانال باید با -100 شروع شود (مثل -1001234567890).")
+                await state.update_data(login_messages=[message.message_id])
+                return
+            try:
+                await bot.send_message(chat_id=channel_id, text="📋 تست دسترسی ربات به کانال لاگ.")
+                set_log_channel(channel_id)
+                message = await bot.send_message(chat_id, f"✅ کانال لاگ با آیدی {channel_id} با موفقیت تنظیم شد.", reply_markup=admin_management_menu())
+                await state.update_data(login_messages=[message.message_id])
+                await log_to_channel(bot, chat_id, "تنظیم کانال لاگ", f"کانال لاگ به {channel_id} تنظیم شد.")
+                await state.clear()
+            except Exception as e:
+                message = await bot.send_message(chat_id, f"❌ خطا در دسترسی به کانال: {str(e)}\nلطفاً مطمئن شوید ربات به کانال پرایویت به‌عنوان ادمین اضافه شده است.")
+                await state.update_data(login_messages=[message.message_id])
         except ValueError:
             message = await bot.send_message(chat_id, "⚠️ لطفاً یک آیدی عددی معتبر وارد کنید.")
             await state.update_data(login_messages=[message.message_id])
@@ -458,7 +539,7 @@ async def message_handler(message: types.Message, state: FSMContext, bot: Bot):
             await state.update_data(login_messages=[message.message_id])
             return
         if not await check_server_availability(text):
-            message = await bot.send_message(chat_id, "❌ نمی‌توان به سرور متصل شد. لطفاً آدرس پنل یا اتصال اینترنت را بررسی کنید.", reply_markup=panel_login_menu())
+            message = await bot.send_message(chat_id, "❌ نمی‌توان به سرور متصل شد. لطفاً آدرس پنل، اتصال اینترنت یا وضعیت سرور را بررسی کنید.", reply_markup=panel_login_menu())
             await state.update_data(login_messages=[message.message_id])
             return
         await state.update_data(panel_url=text)
@@ -485,6 +566,7 @@ async def message_handler(message: types.Message, state: FSMContext, bot: Bot):
             save_panel(chat_id, alias, panel_url, token, admin_username, password)
             message = await bot.send_message(chat_id, f"✅ پنل '{alias}' با موفقیت اضافه شد!", reply_markup=main_menu(is_owner(chat_id)))
             await state.update_data(login_messages=[message.message_id])
+            await log_to_channel(bot, chat_id, "افزودن پنل", f"پنل با نام مستعار {alias} اضافه شد.")
             await state.clear()
         except Exception as e:
             logger.error(f"Authentication error: {str(e)}")
@@ -534,8 +616,8 @@ async def message_handler(message: types.Message, state: FSMContext, bot: Bot):
                     )
                     message = await bot.send_message(chat_id, response_text, reply_markup=user_action_menu(username))
                     await state.update_data(login_messages=[message.message_id])
+                    await log_to_channel(bot, chat_id, "جستجوی کاربر", f"کاربر {username} جستجو شد.")
         except Exception as e:
-            logger.error(f"Search user error: {str(e)}")
             logger.error(f"Search user error: {str(e)}")
             message = await bot.send_message(chat_id, f"❌ خطا در جستجو: {str(e)}")
             await state.update_data(login_messages=[message.message_id])
@@ -576,6 +658,7 @@ async def message_handler(message: types.Message, state: FSMContext, bot: Bot):
         if success_msg:
             message = await bot.send_message(chat_id, success_msg, reply_markup=main_menu(is_owner(chat_id)))
             await state.update_data(login_messages=[message.message_id])
+            await log_to_channel(bot, chat_id, "ایجاد کاربر", f"کاربر جدید با موفقیت ایجاد شد: {success_msg}")
         else:
             message = await bot.send_message(chat_id, error_msg)
             await state.update_data(login_messages=[message.message_id])
@@ -615,6 +698,7 @@ async def message_handler(message: types.Message, state: FSMContext, bot: Bot):
                     if response.status == 200:
                         message = await bot.send_message(chat_id, f"✅ حجم کاربر '{username}' به {format_traffic(new_data_limit) if new_data_limit else 'نامحدود'} تنظیم شد.", reply_markup=user_action_menu(username))
                         await state.update_data(login_messages=[message.message_id])
+                        await log_to_channel(bot, chat_id, "تغییر حجم کاربر", f"حجم کاربر {username} به {format_traffic(new_data_limit) if new_data_limit else 'نامحدود'} تنظیم شد.")
                         await state.clear()
                     else:
                         result = await response.json()
@@ -665,6 +749,7 @@ async def message_handler(message: types.Message, state: FSMContext, bot: Bot):
                     if response.status == 200:
                         message = await bot.send_message(chat_id, f"✅ زمان انقضای کاربر '{username}' به {new_expire_days if new_expire_days > 0 else 'نامحدود'} روز تنظیم شد.", reply_markup=user_action_menu(username))
                         await state.update_data(login_messages=[message.message_id])
+                        await log_to_channel(bot, chat_id, "تغییر زمان انقضا", f"زمان انقضای کاربر {username} به {new_expire_days if new_expire_days > 0 else 'نامحدود'} روز تنظیم شد.")
                         await state.clear()
                     else:
                         result = await response.json()
@@ -679,21 +764,26 @@ async def message_handler(message: types.Message, state: FSMContext, bot: Bot):
             message = await bot.send_message(chat_id, f"❌ خطا: {str(e)}")
             await state.update_data(login_messages=[message.message_id])
             await state.clear()
-async def check_server_availability(url: str) -> bool:
-    try:
-        url_pattern = re.match(r"(https?://[^/:]+)(?::(\d+))?/?", url)
-        if not url_pattern:
-            logger.error(f"Invalid URL format: {url}")
+
+async def check_server_availability(url: str, retries: int = 3, timeout: int = 5) -> bool:
+    for attempt in range(retries):
+        try:
+            url_pattern = re.match(r"(https?://[^/:]+)(?::(\d+))?/?", url)
+            if not url_pattern:
+                logger.error(f"Invalid URL format: {url}")
+                return False
+            hostname = url_pattern.group(1).split("://")[1]
+            port = int(url_pattern.group(2)) if url_pattern.group(2) else 443
+            socket.getaddrinfo(hostname, port)
+            async with aiohttp.ClientSession() as session:
+                async with session.get(url, timeout=timeout, ssl=True) as response:
+                    return response.status < 500
+        except (socket.gaierror, aiohttp.ClientConnectorError, asyncio.TimeoutError) as e:
+            logger.error(f"Server check failed for {url} (attempt {attempt+1}): {str(e)}")
+            if attempt < retries - 1:
+                await asyncio.sleep(1)
+        except Exception as e:
+            logger.error(f"Unexpected error checking server {url}: {str(e)}")
             return False
-        hostname = url_pattern.group(1).split("://")[1]
-        port = int(url_pattern.group(2)) if url_pattern.group(2) else 443
-        socket.getaddrinfo(hostname, port)
-        async with aiohttp.ClientSession() as session:
-            async with session.get(url, timeout=5, ssl=True) as response:
-                return response.status < 500
-    except (socket.gaierror, aiohttp.ClientConnectorError, asyncio.TimeoutError) as e:
-        logger.error(f"Server check failed for {url}: {str(e)}")
-        return False
-    except Exception as e:
-        logger.error(f"Unexpected error checking server {url}: {str(e)}")
-        return False
+    logger.error(f"Failed to connect to {url} after {retries} attempts")
+    return False
