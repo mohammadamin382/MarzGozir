@@ -20,7 +20,7 @@ check_prerequisites() {
         sudo apt-get install -y git || { echo -e "${RED}Failed to install Git${NC}"; exit 1; }
     fi
     if ! command -v docker &> /dev/null; then
-        echo -e "${YELLOW}Docker not found. Installing Docker...${NC}"
+        echo -e "${YELLOW}Docker not found.. Installing Docker...${NC}"
         sudo apt-get update
         sudo apt-get install -y docker.io || { echo -e "${RED}Failed to install Docker${NC}"; exit 1; }
         sudo systemctl start docker
