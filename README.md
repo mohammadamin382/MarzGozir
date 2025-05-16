@@ -6,7 +6,7 @@
 برای نصب MarzGozir ، از دستور زیر استفاده کنید:
 
 ```bash
-curl -o install.sh -L https://raw.githubusercontent.com/imahiar/marz-maneger/main/install.sh && bash install.sh
+curl -o install.sh -L https://raw.githubusercontent.com/mahyyar/marzgozir/main/install.sh && bash install.sh
 ```
 ## دونیت
 اگر مرزگذیر را دوست دارید و مایل به حمایت از توسعه بیشتر آن هستید، می‌توانید کمک مالی خود را در نظر بگیرید:
