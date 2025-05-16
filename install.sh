@@ -9,6 +9,7 @@ INSTALL_DIR="/opt/marzgozir"
 CONFIG_FILE="$INSTALL_DIR/bot_config.py"
 COMPOSE_FILE="$INSTALL_DIR/docker-compose.yml"
 DATA_DIR="$INSTALL_DIR/data"
+DB_FILE="$DATA_DIR/bot_data.db"
 REPO_URL="https://github.com/mahyyar/MarzGozir.git"
 PROJECT_NAME="marzgozir"
 
@@ -103,7 +104,7 @@ setup_data_directory() {
     echo -e "${YELLOW}Setting up database directory and permissions...${NC}"
     mkdir -p "$DATA_DIR"
     chmod 777 "$DATA_DIR"
-    rm -f "$DATA_DIR/bot_data.db"
+    rm -f "$DB_FILE"
     echo -e "${GREEN}Database directory configured successfully${NC}"
 }
 
@@ -178,24 +179,38 @@ update_bot() {
     if [ -d "$INSTALL_DIR" ]; then
         echo -e "${YELLOW}Updating bot...${NC}"
         cd "$INSTALL_DIR" || exit 1
+        # Backup database and config
+        if [ -f "$DB_FILE" ]; then
+            cp "$DB_FILE" "/tmp/bot_data.db.bak"
+        fi
         if [ -f "$CONFIG_FILE" ]; then
             cp "$CONFIG_FILE" "/tmp/bot_config.py.bak"
         fi
-        git reset --hard || { echo -e "${RED}Failed to reset local changes${NC}"; exit 1; }
-        git clean -fd || { echo -e "${RED}Failed to clean untracked files${NC}"; exit 1; }
+        # Clean up Docker and remove project directory
         cleanup_docker
-        git pull || { echo -e "${RED}Failed to update repository${NC}"; exit 1; }
+        sudo rm -rf "$INSTALL_DIR"
+        # Re-clone repository
+        echo -e "${YELLOW}Cloning repository from $REPO_URL...${NC}"
+        git clone "$REPO_URL" "$INSTALL_DIR" || { echo -e "${RED}Failed to clone repository${NC}"; exit 1; }
+        cd "$INSTALL_DIR" || exit 1
+        check_required_files || { echo -e "${RED}Required files are missing${NC}"; exit 1; }
+        # Restore database
+        if [ -f "/tmp/bot_data.db.bak" ]; then
+            mkdir -p "$DATA_DIR"
+            mv "/tmp/bot_data.db.bak" "$DB_FILE"
+            chmod 777 "$DATA_DIR"
+        fi
+        # Restore and edit config
         if [ -f "/tmp/bot_config.py.bak" ]; then
             mv "/tmp/bot_config.py.bak" "$CONFIG_FILE"
         fi
-        check_required_files || { echo -e "${RED}Required files are missing${NC}"; exit 1; }
         get_token_and_id || { echo -e "${RED}Failed to collect token and ID${NC}"; exit 1; }
         edit_bot_config
         echo -e "${YELLOW}Building and starting bot with Docker Compose...${NC}"
         sudo docker-compose build --no-cache || { echo -e "${RED}Failed to build Docker image${NC}"; exit 1; }
         sudo docker-compose up -d || { echo -e "${RED}Failed to start Docker Compose${NC}"; sudo docker-compose logs; exit 1; }
         check_container_status || exit 1
-        echo -e "${GREEN}Bot updated and running successfully${NC}"
+        echo -e "${GREEN}Bot updated and running successfully!${NC}"
     else
         echo -e "${RED}Bot is not installed!${NC}"
     fi
