@@ -12,5 +12,3 @@ curl -o install.sh -L https://raw.githubusercontent.com/mahyyar/marzgozir/main/i
 اگر مرزگذیر را دوست دارید و مایل به حمایت از توسعه بیشتر آن هستید، می‌توانید کمک مالی خود را در نظر بگیرید:
 
 - **TRX (TRX):** `TUB6NQYGjBLF6y2zUq9bo8isEZtB7Va9BG`
-
-- **TON:** `8191776799:AAFQkabjF0OsSr9-_bVwWp9jLlAINiE2d5c`
