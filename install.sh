@@ -108,7 +108,6 @@ extract_token_and_id() {
 
 edit_bot_config() {
     echo -e "${YELLOW}Editing bot_config.py...${NC}"
-    mkdir -p "$INSTALL_DIR"
     if [ ! -f "$CONFIG_FILE" ]; then
         echo -e "${YELLOW}bot_config.py not found in repository, creating default...${NC}"
         cat > "$CONFIG_FILE" << EOF
@@ -127,12 +126,6 @@ EOF
     echo -e "${YELLOW}Using ADMIN_ID: $ADMIN_ID${NC}"
     sed -i "s|^TOKEN\s*=\s*['\"].*['\"]|TOKEN = \"$TOKEN\"|" "$CONFIG_FILE"
     sed -i "s|^ADMIN_IDS\s*=\s*\[.*\]|ADMIN_IDS = [$ADMIN_ID]|" "$CONFIG_FILE"
-    # Set CACHE_DURATION
-    sed -i "s|^CACHE_DURATION\s*=\s*.*|CACHE_DURATION = 30|" "$CONFIG_FILE"
-    # Ensure VERSION exists
-    if ! grep -q "^VERSION\s*=\s*" "$CONFIG_FILE"; then
-        echo 'VERSION = "V1.1.3"' >> "$CONFIG_FILE"
-    fi
     chmod 644 "$CONFIG_FILE"
     echo -e "${YELLOW}After edit - bot_config.py content:${NC}"
     cat "$CONFIG_FILE"
@@ -149,7 +142,7 @@ EOF
 
 setup_data_directory() {
     echo -e "${YELLOW}Setting up database directory and permissions...${NC}"
-    mkdir -p "$DATA_DIR"
+>U    mkdir -p "$DATA_DIR"
     chmod 777 "$DATA_DIR"
     rm -f "$DB_FILE"
     echo -e "${GREEN}Database directory configured successfully${NC}"
