@@ -80,18 +80,23 @@ get_token_and_id() {
     done
 }
 
-create_bot_config() {
-    echo -e "${YELLOW}Creating or updating bot_config.py...${NC}"
+edit_bot_config() {
+    echo -e "${YELLOW}Editing bot_config.py...${NC}"
     mkdir -p "$INSTALL_DIR"
-    cat > "$CONFIG_FILE" << EOF
-TOKEN="$TOKEN"
-ADMIN_IDS=[$ADMIN_ID]
+    if [ ! -f "$CONFIG_FILE" ]; then
+        echo -e "${YELLOW}bot_config.py not found in repository, creating default...${NC}"
+        cat > "$CONFIG_FILE" << EOF
+TOKEN="SET_YOUR_TOKEN"
+ADMIN_IDS=[123456789]
 DB_PATH="bot_data.db"
 VERSION="v1.1.3"
 CACHE_DURATION=300
 EOF
+    fi
+    sed -i "s/TOKEN=.*/TOKEN=\"$TOKEN\"/" "$CONFIG_FILE"
+    sed -i "s/ADMIN_IDS=.*/ADMIN_IDS=[$ADMIN_ID]/" "$CONFIG_FILE"
     chmod 644 "$CONFIG_FILE"
-    echo -e "${GREEN}Configuration file bot_config.py created successfully${NC}"
+    echo -e "${GREEN}bot_config.py updated successfully${NC}"
 }
 
 setup_data_directory() {
@@ -112,17 +117,6 @@ check_required_files() {
     done
     echo -e "${GREEN}All required files are present${NC}"
     return 0
-}
-
-fix_message_utils() {
-    echo -e "${YELLOW}Checking and fixing message_utils.py for asyncio import...${NC}"
-    if ! grep -q "import asyncio" "$INSTALL_DIR/utils/message_utils.py"; then
-        echo -e "${YELLOW}Adding import asyncio to message_utils.py...${NC}"
-        sed -i '1i import asyncio' "$INSTALL_DIR/utils/message_utils.py"
-        echo -e "${GREEN}message_utils.py updated successfully${NC}"
-    else
-        echo -e "${GREEN}message_utils.py already has asyncio import${NC}"
-    fi
 }
 
 cleanup_docker() {
@@ -158,9 +152,8 @@ install_bot() {
     git clone "$REPO_URL" "$INSTALL_DIR" || { echo -e "${RED}Failed to clone repository${NC}"; exit 1; }
     cd "$INSTALL_DIR" || exit 1
     check_required_files || { echo -e "${RED}Required files are missing${NC}"; exit 1; }
-    fix_message_utils
     get_token_and_id || { echo -e "${RED}Failed to collect token and ID${NC}"; exit 1; }
-    create_bot_config
+    edit_bot_config
     setup_data_directory
     echo -e "${YELLOW}Building and starting bot with Docker Compose...${NC}"
     sudo docker-compose build --no-cache || { echo -e "${RED}Failed to build Docker image${NC}"; exit 1; }
@@ -196,12 +189,13 @@ update_bot() {
             mv "/tmp/bot_config.py.bak" "$CONFIG_FILE"
         fi
         check_required_files || { echo -e "${RED}Required files are missing${NC}"; exit 1; }
-        fix_message_utils
+        get_token_and_id || { echo -e "${RED}Failed to collect token and ID${NC}"; exit 1; }
+        edit_bot_config
         echo -e "${YELLOW}Building and starting bot with Docker Compose...${NC}"
         sudo docker-compose build --no-cache || { echo -e "${RED}Failed to build Docker image${NC}"; exit 1; }
         sudo docker-compose up -d || { echo -e "${RED}Failed to start Docker Compose${NC}"; sudo docker-compose logs; exit 1; }
         check_container_status || exit 1
-        echo -e "${GREEN}Bot updated and running successfully!${NC}"
+        echo -e "${GREEN}Bot updated and running successfully${NC}"
     else
         echo -e "${RED}Bot is not installed!${NC}"
     fi
@@ -224,7 +218,7 @@ reset_token_and_id() {
         echo -e "${YELLOW}Resetting bot token and admin ID...${NC}"
         cd "$INSTALL_DIR" || exit 1
         get_token_and_id || { echo -e "${RED}Failed to collect token and ID${NC}"; exit 1; }
-        create_bot_config
+        edit_bot_config
         restart_bot
     else
         echo -e "${RED}Bot is not installed!${NC}"
