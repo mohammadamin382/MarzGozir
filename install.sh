@@ -81,23 +81,18 @@ extract_token_and_id() {
                 return 0
             fi
         fi
-        echo -e "${RED}Invalid token/ID in bot_config.py${NC}"
     fi
     get_token_and_id
 }
 
 edit_bot_config() {
     mkdir -p "$INSTALL_DIR"
-    if [ ! -f "$CONFIG_FILE" ]; then
-        cat > "$CONFIG_FILE" << EOF
-TOKEN="SET_YOUR_TOKEN"
-ADMIN_IDS=[123456789]
+    cat > "$CONFIG_FILE" << EOF
+TOKEN="$TOKEN"
+ADMIN_IDS=[$ADMIN_ID]
 DB_PATH="bot_data.db"
 CACHE_DURATION=300
 EOF
-    fi
-    sed -i "s/TOKEN=.*/TOKEN=\"$TOKEN\"/" "$CONFIG_FILE"
-    sed -i "s/ADMIN_IDS=.*/ADMIN_IDS=[$ADMIN_ID]/" "$CONFIG_FILE"
     chmod 644 "$CONFIG_FILE"
 }
 
@@ -118,8 +113,8 @@ check_required_files() {
 
 validate_repo() {
     if ! curl -s --head "$REPO_URL" | grep -q "200 OK"; then
-        echo -e "${RED}Repository $REPO_URL is not accessible. Check if it exists or is private.${NC}"
-        echo -e "${YELLOW}Enter a valid repository URL (or press Enter to retry default):${NC}"
+        echo -e "${RED}Repository $REPO_URL not accessible${NC}"
+        echo -e "${YELLOW}Enter valid repository URL (or Enter to retry):${NC}"
         read -r NEW_URL
         if [ -n "$NEW_URL" ]; then
             REPO_URL="$NEW_URL"
