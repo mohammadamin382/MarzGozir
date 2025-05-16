@@ -116,6 +116,7 @@ TOKEN = "SET_YOUR_TOKEN"
 ADMIN_IDS = [123456789]
 DB_PATH = "bot_data.db"
 CACHE_DURATION = 30
+VERSION = "V1.1.3"
 EOF
     fi
     # Fix malformed TOKEN line
@@ -126,9 +127,12 @@ EOF
     echo -e "${YELLOW}Using ADMIN_ID: $ADMIN_ID${NC}"
     sed -i "s|^TOKEN\s*=\s*['\"].*['\"]|TOKEN = \"$TOKEN\"|" "$CONFIG_FILE"
     sed -i "s|^ADMIN_IDS\s*=\s*\[.*\]|ADMIN_IDS = [$ADMIN_ID]|" "$CONFIG_FILE"
-    # Ensure CACHE_DURATION and remove VERSION if present
+    # Set CACHE_DURATION
     sed -i "s|^CACHE_DURATION\s*=\s*.*|CACHE_DURATION = 30|" "$CONFIG_FILE"
-    sed -i '/^VERSION\s*=/d' "$CONFIG_FILE"
+    # Ensure VERSION exists
+    if ! grep -q "^VERSION\s*=\s*" "$CONFIG_FILE"; then
+        echo 'VERSION = "V1.1.3"' >> "$CONFIG_FILE"
+    fi
     chmod 644 "$CONFIG_FILE"
     echo -e "${YELLOW}After edit - bot_config.py content:${NC}"
     cat "$CONFIG_FILE"
