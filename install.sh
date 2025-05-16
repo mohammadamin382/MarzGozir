@@ -14,145 +14,120 @@ REPO_URL="https://github.com/mahyyar/MarzGozir.git"
 PROJECT_NAME="marzgozir"
 
 check_prerequisites() {
-    echo -e "${YELLOW}Checking system prerequisites...${NC}"
     if ! command -v git &> /dev/null; then
-        echo -e "${YELLOW}Git not found. Installing Git...${NC}"
         sudo apt-get update
         sudo apt-get install -y git || { echo -e "${RED}Failed to install Git${NC}"; exit 1; }
     fi
     if ! command -v docker &> /dev/null; then
-        echo -e "${YELLOW}Docker not found. Installing Docker...${NC}"
         sudo apt-get update
         sudo apt-get install -y docker.io || { echo -e "${RED}Failed to install Docker${NC}"; exit 1; }
         sudo systemctl start docker
         sudo systemctl enable docker
     fi
     if ! command -v docker-compose &> /dev/null; then
-        echo -e "${YELLOW}Docker Compose not found. Installing Docker Compose...${NC}"
         sudo curl -L "https://github.com/docker/compose/releases/latest/download/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose || { echo -e "${RED}Failed to install Docker Compose${NC}"; exit 1; }
         sudo chmod +x /usr/local/bin/docker-compose
     fi
     if ! command -v curl &> /dev/null; then
-        echo -e "${YELLOW}Curl not found. Installing Curl...${NC}"
         sudo apt-get update
         sudo apt-get install -y curl || { echo -e "${RED}Failed to install Curl${NC}"; exit 1; }
     fi
-    echo -e "${GREEN}All prerequisites successfully installed${NC}"
 }
 
 validate_token() {
     local token=$1
-    echo -e "${YELLOW}Validating Telegram bot token...${NC}"
     response=$(curl -s "https://api.telegram.org/bot${token}/getMe")
     if [[ "$response" =~ \"ok\":true ]]; then
-        echo -e "${GREEN}Bot token is valid${NC}"
         return 0
     else
-        echo -e "${RED}Error: Invalid bot token! Response: $response${NC}"
+        echo -e "${RED}Invalid bot token!${NC}"
         return 1
     fi
 }
 
 get_token_and_id() {
     while true; do
-        echo -e "${YELLOW}Enter your Telegram bot token:${NC}"
+        echo -e "${YELLOW}Enter Telegram bot token:${NC}"
         read -r TOKEN
-        echo -e "${YELLOW}Enter the admin numeric ID (numbers only, no brackets):${NC}"
+        echo -e "${YELLOW}Enter admin numeric ID:${NC}"
         read -r ADMIN_ID
         if [ -z "$TOKEN" ] || [ -z "$ADMIN_ID" ]; then
-            echo -e "${RED}Error: Bot token and admin ID cannot be empty!${NC}"
+            echo -e "${RED}Token and ID cannot be empty!${NC}"
             continue
         fi
         if ! [[ "$TOKEN" =~ ^[0-9]+:[A-Za-z0-9_-]+$ ]]; then
-            echo -e "${RED}Error: Invalid bot token format! It should look like '123456789:ABCDEF1234567890abcdef1234567890'${NC}"
+            echo -e "${RED}Invalid token format!${NC}"
             continue
         fi
         if ! [[ "$ADMIN_ID" =~ ^[0-9]+$ ]]; then
-            echo -e "${RED}Error: Admin ID must contain only numbers!${NC}"
+            echo -e "${RED}Admin ID must be numbers only!${NC}"
             continue
         fi
         if ! validate_token "$TOKEN"; then
-            echo -e "${RED}Please try again with a valid token${NC}"
             continue
         fi
-        echo -e "${GREEN}Bot token and admin ID successfully collected${NC}"
         export TOKEN ADMIN_ID
         return 0
     done
 }
 
 extract_token_and_id() {
-    echo -e "${YELLOW}Extracting token and admin ID from bot_config.py...${NC}"
     if [ -f "$CONFIG_FILE" ]; then
         TOKEN=$(grep -E "^TOKEN=" "$CONFIG_FILE" | cut -d'"' -f2)
         ADMIN_ID=$(grep -E "^ADMIN_IDS=" "$CONFIG_FILE" | cut -d'[' -f2 | cut -d']' -f1)
         if [ -n "$TOKEN" ] && [ -n "$ADMIN_ID" ] && [[ "$TOKEN" =~ ^[0-9]+:[A-Za-z0-9_-]+$ ]] && [[ "$ADMIN_ID" =~ ^[0-9]+$ ]]; then
             if validate_token "$TOKEN"; then
-                echo -e "${GREEN}Valid token and admin ID extracted${NC}"
                 export TOKEN ADMIN_ID
                 return 0
             fi
         fi
-        echo -e "${RED}Invalid or missing token/admin ID in bot_config.py${NC}"
+        echo -e "${RED}Invalid token/ID in bot_config.py${NC}"
     fi
     get_token_and_id
 }
 
 edit_bot_config() {
-    echo -e "${YELLOW}Editing bot_config.py...${NC}"
     mkdir -p "$INSTALL_DIR"
     if [ ! -f "$CONFIG_FILE" ]; then
-        echo -e "${YELLOW}bot_config.py not found in repository, creating default...${NC}"
         cat > "$CONFIG_FILE" << EOF
 TOKEN="SET_YOUR_TOKEN"
 ADMIN_IDS=[123456789]
 DB_PATH="bot_data.db"
-VERSION="v1.1.3"
 CACHE_DURATION=300
 EOF
     fi
     sed -i "s/TOKEN=.*/TOKEN=\"$TOKEN\"/" "$CONFIG_FILE"
     sed -i "s/ADMIN_IDS=.*/ADMIN_IDS=[$ADMIN_ID]/" "$CONFIG_FILE"
     chmod 644 "$CONFIG_FILE"
-    echo -e "${GREEN}bot_config.py updated successfully${NC}"
 }
 
 setup_data_directory() {
-    echo -e "${YELLOW}Setting up database directory and permissions...${NC}"
     mkdir -p "$DATA_DIR"
     chmod 777 "$DATA_DIR"
-    echo -e "${GREEN}Database directory configured successfully${NC}"
 }
 
 check_required_files() {
-    echo -e "${YELLOW}Verifying required files...${NC}"
     for file in Dockerfile docker-compose.yml requirements.txt main.py bot/handlers.py bot/menus.py bot/states.py database/db.py utils/message_utils.py utils/activity_logger.py; do
         if [ ! -f "$INSTALL_DIR/$file" ]; then
-            echo -e "${RED}Error: File $file not found!${NC}"
+            echo -e "${RED}File $file missing!${NC}"
             return 1
         fi
     done
-    echo -e "${GREEN}All required files are present${NC}"
     return 0
 }
 
 cleanup_docker() {
-    echo -e "${YELLOW}Cleaning up existing Docker containers and images...${NC}"
     sudo docker-compose -f "$COMPOSE_FILE" down 2>/dev/null || true
     sudo docker images -q -f "reference=$PROJECT_NAME" | sort -u | xargs -r sudo docker rmi 2>/dev/null || true
     sudo docker ps -a -q -f "name=$PROJECT_NAME" | xargs -r sudo docker rm 2>/dev/null || true
-    echo -e "${GREEN}Docker cleanup completed${NC}"
 }
 
 check_container_status() {
-    echo -e "${YELLOW}Checking container status...${NC}"
     sleep 5
-    container_status=$(sudo docker ps -q -f "name=$PROJECT_NAME")
-    if [ -n "$container_status" ]; then
-        echo -e "${GREEN}Container is running successfully${NC}"
+    if [ -n "$(sudo docker ps -q -f "name=$PROJECT_NAME")" ]; then
         return 0
     else
-        echo -e "${RED}Error: Container failed to start${NC}"
+        echo -e "${RED}Container failed to start${NC}"
         sudo docker-compose logs
         return 1
     fi
@@ -160,114 +135,96 @@ check_container_status() {
 
 install_bot() {
     if [ -d "$INSTALL_DIR" ]; then
-        echo -e "${YELLOW}Existing directory detected. Removing old installation...${NC}"
         cd "$INSTALL_DIR" 2>/dev/null && cleanup_docker || true
         sudo rm -rf "$INSTALL_DIR"
     fi
     check_prerequisites
-    echo -e "${YELLOW}Cloning repository from $REPO_URL...${NC}"
     git clone "$REPO_URL" "$INSTALL_DIR" || { echo -e "${RED}Failed to clone repository${NC}"; exit 1; }
     cd "$INSTALL_DIR" || exit 1
-    check_required_files || { echo -e "${RED}Required files are missing${NC}"; exit 1; }
-    get_token_and_id || { echo -e "${RED}Failed to collect token and ID${NC}"; exit 1; }
+    check_required_files || { echo -e "${RED}Required files missing${NC}"; exit 1; }
+    get_token_and_id || { echo -e "${RED}Failed to collect token/ID${NC}"; exit 1; }
     edit_bot_config
     setup_data_directory
-    echo -e "${YELLOW}Building and starting bot with Docker Compose...${NC}"
     sudo docker-compose build --no-cache || { echo -e "${RED}Failed to build Docker image${NC}"; exit 1; }
     sudo docker-compose up -d || { echo -e "${RED}Failed to start Docker Compose${NC}"; sudo docker-compose logs; exit 1; }
     check_container_status || exit 1
-    echo -e "${GREEN}Bot installed and running successfully!${NC}"
+    echo -e "${GREEN}Bot installed successfully${NC}"
 }
 
 uninstall_bot() {
     if [ -d "$INSTALL_DIR" ]; then
-        echo -e "${YELLOW}Stopping and removing bot...${NC}"
         cd "$INSTALL_DIR" || exit 1
         cleanup_docker
         sudo rm -rf "$INSTALL_DIR"
-        echo -e "${GREEN}Bot uninstalled successfully${NC}"
+        echo -e "${GREEN}Bot uninstalled${NC}"
     else
-        echo -e "${RED}Bot is not installed!${NC}"
+        echo -e "${RED}Bot not installed!${NC}"
     fi
 }
 
 update_bot() {
     if [ -d "$INSTALL_DIR" ]; then
-        echo -e "${YELLOW}Updating bot...${NC}"
         cd "$INSTALL_DIR" || exit 1
-        # Backup database
         if [ -f "$DB_FILE" ]; then
             cp "$DB_FILE" "/tmp/bot_data.db.bak"
-            echo -e "${GREEN}Database backed up to /tmp/bot_data.db.bak${NC}"
         fi
-        # Backup config
         if [ -f "$CONFIG_FILE" ]; then
             cp "$CONFIG_FILE" "/tmp/bot_config.py.bak"
-            echo -e "${GREEN}Configuration file backed up to /tmp/bot_config.py.bak${NC}"
         fi
-        # Clean up Docker
         cleanup_docker
-        # Update repository
-        git reset --hard || { echo -e "${RED}Failed to reset local changes${NC}"; exit 1; }
-        git clean -fd || { echo -e "${RED}Failed to clean untracked files${NC}"; exit 1; }
+        git reset --hard || { echo -e "${RED}Failed to reset changes${NC}"; exit 1; }
+        git clean -fd || { echo -e "${RED}Failed to clean files${NC}"; exit 1; }
         git pull || { echo -e "${RED}Failed to update repository${NC}"; exit 1; }
-        # Restore config
         if [ -f "/tmp/bot_config.py.bak" ]; then
             mv "/tmp/bot_config.py.bak" "$CONFIG_FILE"
-            echo -e "${GREEN}Configuration file restored${NC}"
         fi
-        # Restore database
         if [ -f "/tmp/bot_data.db.bak" ]; then
             mkdir -p "$DATA_DIR"
             mv "/tmp/bot_data.db.bak" "$DB_FILE"
             chmod 777 "$DB_FILE"
-            echo -e "${GREEN}Database restored${NC}"
         fi
-        check_required_files || { echo -e "${RED}Required files are missing${NC}"; exit 1; }
-        echo -e "${YELLOW}Building and starting bot with Docker Compose...${NC}"
+        check_required_files || { echo -e "${RED}Required files missing${NC}"; exit 1; }
         sudo docker-compose build --no-cache || { echo -e "${RED}Failed to build Docker image${NC}"; exit 1; }
         sudo docker-compose up -d || { echo -e "${RED}Failed to start Docker Compose${NC}"; sudo docker-compose logs; exit 1; }
         check_container_status || exit 1
-        echo -e "${GREEN}Bot updated and running successfully${NC}"
+        echo -e "${GREEN}Bot updated successfully${NC}"
     else
-        echo -e "${RED}Bot is not installed!${NC}"
+        echo -e "${RED}Bot not installed!${NC}"
     fi
 }
 
 restart_bot() {
     if [ -d "$INSTALL_DIR" ]; then
-        echo -e "${YELLOW}Restarting bot...${NC}"
         cd "$INSTALL_DIR" || exit 1
         sudo docker-compose restart || { echo -e "${RED}Failed to restart bot${NC}"; exit 1; }
         check_container_status || exit 1
-        echo -e "${GREEN}Bot restarted successfully${NC}"
+        echo -e "${GREEN}Bot restarted${NC}"
     else
-        echo -e "${RED}Bot is not installed!${NC}"
+        echo -e "${RED}Bot not installed!${NC}"
     fi
 }
 
 reset_token_and_id() {
     if [ -d "$INSTALL_DIR" ]; then
-        echo -e "${YELLOW}Resetting bot token and admin ID...${NC}"
         cd "$INSTALL_DIR" || exit 1
-        get_token_and_id || { echo -e "${RED}Failed to collect token and ID${NC}"; exit 1; }
+        get_token_and_id || { echo -e "${RED}Failed to collect token/ID${NC}"; exit 1; }
         edit_bot_config
         restart_bot
     else
-        echo -e "${RED}Bot is not installed!${NC}"
+        echo -e "${RED}Bot not installed!${NC}"
     fi
 }
 
 show_menu() {
     clear
-    echo -e "${YELLOW}===== MarzGozir Bot Management Menu =====${NC}"
+    echo -e "${YELLOW}===== MarzGozir Bot Menu =====${NC}"
     echo "1) Install Bot"
     echo "2) Update Bot"
     echo "3) Uninstall Bot"
-    echo "4) Change Bot Token and Admin ID"
+    echo "4) Change Token/ID"
     echo "5) Restart Bot"
     echo "6) Exit"
-    echo -e "${YELLOW}Please select an option (1-6):${NC}"
+    echo -e "${YELLOW}Select (1-6):${NC}"
 }
 
 while true; do
@@ -279,9 +236,9 @@ while true; do
         3) uninstall_bot ;;
         4) reset_token_and_id ;;
         5) restart_bot ;;
-        6) echo -e "${GREEN}Exiting program...${NC}"; exit 0 ;;
-        *) echo -e "${RED}Invalid option! Please select a number between 1 and 6.${NC}" ;;
+        6) echo -e "${GREEN}Exiting...${NC}"; exit 0 ;;
+        *) echo -e "${RED}Invalid option!${NC}" ;;
     esac
-    echo -e "${YELLOW}Press any key to return to the menu...${NC}"
+    echo -e "${YELLOW}Press any key...${NC}"
     read -n 1
 done
