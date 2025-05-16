@@ -40,7 +40,7 @@ validate_token() {
     if [[ "$response" =~ \"ok\":true ]]; then
         return 0
     else
-        echo -e "${RED}Invalid bot token!${NC}"
+        echo -e "${RED}Invalid bot token${NC}"
         return 1
     fi
 }
@@ -52,15 +52,15 @@ get_token_and_id() {
         echo -e "${YELLOW}Enter admin numeric ID:${NC}"
         read -r ADMIN_ID
         if [ -z "$TOKEN" ] || [ -z "$ADMIN_ID" ]; then
-            echo -e "${RED}Token and ID cannot be empty!${NC}"
+            echo -e "${RED}Token and ID cannot be empty${NC}"
             continue
         fi
         if ! [[ "$TOKEN" =~ ^[0-9]+:[A-Za-z0-9_-]+$ ]]; then
-            echo -e "${RED}Invalid token format!${NC}"
+            echo -e "${RED}Invalid token format${NC}"
             continue
         fi
         if ! [[ "$ADMIN_ID" =~ ^[0-9]+$ ]]; then
-            echo -e "${RED}Admin ID must be numbers only!${NC}"
+            echo -e "${RED}Admin ID must be numbers${NC}"
             continue
         fi
         if ! validate_token "$TOKEN"; then
@@ -109,11 +109,26 @@ setup_data_directory() {
 check_required_files() {
     for file in Dockerfile docker-compose.yml requirements.txt main.py bot/handlers.py bot/menus.py bot/states.py database/db.py utils/message_utils.py utils/activity_logger.py; do
         if [ ! -f "$INSTALL_DIR/$file" ]; then
-            echo -e "${RED}File $file missing!${NC}"
+            echo -e "${RED}File $file missing${NC}"
             return 1
         fi
     done
     return 0
+}
+
+validate_repo() {
+    if ! curl -s --head "$REPO_URL" | grep -q "200 OK"; then
+        echo -e "${RED}Repository $REPO_URL is not accessible. Check if it exists or is private.${NC}"
+        echo -e "${YELLOW}Enter a valid repository URL (or press Enter to retry default):${NC}"
+        read -r NEW_URL
+        if [ -n "$NEW_URL" ]; then
+            REPO_URL="$NEW_URL"
+        fi
+        if ! curl -s --head "$REPO_URL" | grep -q "200 OK"; then
+            echo -e "${RED}Repository still inaccessible${NC}"
+            exit 1
+        fi
+    fi
 }
 
 cleanup_docker() {
@@ -139,8 +154,11 @@ install_bot() {
         sudo rm -rf "$INSTALL_DIR"
     fi
     check_prerequisites
-    git clone "$REPO_URL" "$INSTALL_DIR" || { echo -e "${RED}Failed to clone repository${NC}"; exit 1; }
-    cd "$INSTALL_DIR" || exit 1
+    validate_repo
+    mkdir -p "$INSTALL_DIR" || { echo -e "${RED}Failed to create $INSTALL_DIR${NC}"; exit 1; }
+    cd /tmp || { echo -e "${RED}Failed to change to /tmp${NC}"; exit 1; }
+    sudo git clone "$REPO_URL" "$INSTALL_DIR" || { echo -e "${RED}Failed to clone repository${NC}"; exit 1; }
+    cd "$INSTALL_DIR" || { echo -e "${RED}Failed to change to $INSTALL_DIR${NC}"; exit 1; }
     check_required_files || { echo -e "${RED}Required files missing${NC}"; exit 1; }
     get_token_and_id || { echo -e "${RED}Failed to collect token/ID${NC}"; exit 1; }
     edit_bot_config
@@ -148,7 +166,7 @@ install_bot() {
     sudo docker-compose build --no-cache || { echo -e "${RED}Failed to build Docker image${NC}"; exit 1; }
     sudo docker-compose up -d || { echo -e "${RED}Failed to start Docker Compose${NC}"; sudo docker-compose logs; exit 1; }
     check_container_status || exit 1
-    echo -e "${GREEN}Bot installed successfully${NC}"
+    echo -e "${GREEN}Bot installed${NC}"
 }
 
 uninstall_bot() {
@@ -158,7 +176,7 @@ uninstall_bot() {
         sudo rm -rf "$INSTALL_DIR"
         echo -e "${GREEN}Bot uninstalled${NC}"
     else
-        echo -e "${RED}Bot not installed!${NC}"
+        echo -e "${RED}Bot not installed${NC}"
     fi
 }
 
@@ -174,6 +192,7 @@ update_bot() {
         cleanup_docker
         git reset --hard || { echo -e "${RED}Failed to reset changes${NC}"; exit 1; }
         git clean -fd || { echo -e "${RED}Failed to clean files${NC}"; exit 1; }
+        validate_repo
         git pull || { echo -e "${RED}Failed to update repository${NC}"; exit 1; }
         if [ -f "/tmp/bot_config.py.bak" ]; then
             mv "/tmp/bot_config.py.bak" "$CONFIG_FILE"
@@ -187,9 +206,9 @@ update_bot() {
         sudo docker-compose build --no-cache || { echo -e "${RED}Failed to build Docker image${NC}"; exit 1; }
         sudo docker-compose up -d || { echo -e "${RED}Failed to start Docker Compose${NC}"; sudo docker-compose logs; exit 1; }
         check_container_status || exit 1
-        echo -e "${GREEN}Bot updated successfully${NC}"
+        echo -e "${GREEN}Bot updated${NC}"
     else
-        echo -e "${RED}Bot not installed!${NC}"
+        echo -e "${RED}Bot not installed${NC}"
     fi
 }
 
@@ -200,7 +219,7 @@ restart_bot() {
         check_container_status || exit 1
         echo -e "${GREEN}Bot restarted${NC}"
     else
-        echo -e "${RED}Bot not installed!${NC}"
+        echo -e "${RED}Bot not installed${NC}"
     fi
 }
 
@@ -211,7 +230,7 @@ reset_token_and_id() {
         edit_bot_config
         restart_bot
     else
-        echo -e "${RED}Bot not installed!${NC}"
+        echo -e "${RED}Bot not installed${NC}"
     fi
 }
 
@@ -237,7 +256,7 @@ while true; do
         4) reset_token_and_id ;;
         5) restart_bot ;;
         6) echo -e "${GREEN}Exiting...${NC}"; exit 0 ;;
-        *) echo -e "${RED}Invalid option!${NC}" ;;
+        *) echo -e "${RED}Invalid option${NC}" ;;
     esac
     echo -e "${YELLOW}Press any key...${NC}"
     read -n 1
