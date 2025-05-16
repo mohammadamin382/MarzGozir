@@ -9,6 +9,7 @@ INSTALL_DIR="/opt/marzgozir"
 CONFIG_FILE="$INSTALL_DIR/bot_config.py"
 COMPOSE_FILE="$INSTALL_DIR/docker-compose.yml"
 DATA_DIR="$INSTALL_DIR/data"
+DB_FILE="$DATA_DIR/bot_data.db"
 REPO_URL="https://github.com/mahyyar/MarzGozir.git"
 PROJECT_NAME="marzgozir"
 
@@ -20,7 +21,7 @@ check_prerequisites() {
         sudo apt-get install -y git || { echo -e "${RED}Failed to install Git${NC}"; exit 1; }
     fi
     if ! command -v docker &> /dev/null; then
-        echo -e "${YELLOW}Docker not found.. Installing Docker...${NC}"
+        echo -e "${YELLOW}Docker not found. Installing Docker...${NC}"
         sudo apt-get update
         sudo apt-get install -y docker.io || { echo -e "${RED}Failed to install Docker${NC}"; exit 1; }
         sudo systemctl start docker
@@ -75,28 +76,75 @@ get_token_and_id() {
             continue
         fi
         echo -e "${GREEN}Bot token and admin ID successfully collected${NC}"
+        echo -e "${YELLOW}Collected TOKEN: $TOKEN${NC}"
+        echo -e "${YELLOW}Collected ADMIN_ID: $ADMIN_ID${NC}"
         export TOKEN ADMIN_ID
         return 0
     done
 }
 
-create_bot_config() {
-    echo -e "${YELLOW}Creating or updating bot_config.py...${NC}"
-    mkdir -p "$INSTALL_DIR"
-    cat > "$CONFIG_FILE" << EOF
-TOKEN="$TOKEN"
-ADMIN_IDS=[$ADMIN_ID]
-VERSION="v0.1.0"
+extract_token_and_id() {
+    echo -e "${YELLOW}Extracting token and admin ID from bot_config.py...${NC}"
+    if [ -f "$CONFIG_FILE" ]; then
+        echo -e "${YELLOW}Current bot_config.py content:${NC}"
+        cat "$CONFIG_FILE"
+        TOKEN=$(grep -E "^TOKEN\s*=" "$CONFIG_FILE" | sed -E "s/TOKEN\s*=\s*['\"]?([^'\"]+)['\"]?/\1/" | tr -d ' ')
+        ADMIN_ID=$(grep -E "^ADMIN_IDS\s*=" "$CONFIG_FILE" | sed -E "s/ADMIN_IDS\s*=\s*\[(.*)\]/\1/" | tr -d ' ')
+        if [ -n "$TOKEN" ] && [ -n "$ADMIN_ID" ] && [[ "$TOKEN" =~ ^[0-9]+:[A-Za-z0-9_-]+$ ]] && [[ "$ADMIN_ID" =~ ^[0-9]+$ ]]; then
+            echo -e "${YELLOW}Extracted TOKEN: $TOKEN${NC}"
+            echo -e "${YELLOW}Extracted ADMIN_ID: $ADMIN_ID${NC}"
+            if validate_token "$TOKEN"; then
+                echo -e "${GREEN}Valid token and admin ID extracted${NC}"
+                export TOKEN ADMIN_ID
+                return 0
+            fi
+        fi
+        echo -e "${RED}Invalid or missing token/admin ID in bot_config.py${NC}"
+    else
+        echo -e "${RED}bot_config.py not found${NC}"
+    fi
+    get_token_and_id
+}
+
+edit_bot_config() {
+    echo -e "${YELLOW}Editing bot_config.py...${NC}"
+    if [ ! -f "$CONFIG_FILE" ]; then
+        echo -e "${YELLOW}bot_config.py not found in repository, creating default...${NC}"
+        cat > "$CONFIG_FILE" << EOF
+TOKEN = "SET_YOUR_TOKEN"
+ADMIN_IDS = [123456789]
+DB_PATH = "bot_data.db"
+CACHE_DURATION = 30
+VERSION = "V1.1.3"
 EOF
+    fi
+    # Fix malformed TOKEN line
+    sed -i 's|^TOKEN\s*=\s*SET_YOUR_TOKEN.*|TOKEN = "SET_YOUR_TOKEN"|' "$CONFIG_FILE"
+    echo -e "${YELLOW}Before edit - bot_config.py content:${NC}"
+    cat "$CONFIG_FILE"
+    echo -e "${YELLOW}Using TOKEN: $TOKEN${NC}"
+    echo -e "${YELLOW}Using ADMIN_ID: $ADMIN_ID${NC}"
+    sed -i "s|^TOKEN\s*=\s*['\"].*['\"]|TOKEN = \"$TOKEN\"|" "$CONFIG_FILE"
+    sed -i "s|^ADMIN_IDS\s*=\s*\[.*\]|ADMIN_IDS = [$ADMIN_ID]|" "$CONFIG_FILE"
     chmod 644 "$CONFIG_FILE"
-    echo -e "${GREEN}Configuration file bot_config.py created successfully${NC}"
+    echo -e "${YELLOW}After edit - bot_config.py content:${NC}"
+    cat "$CONFIG_FILE"
+    # Verify the changes
+    if grep -q "TOKEN = \"$TOKEN\"" "$CONFIG_FILE" && grep -q "ADMIN_IDS = \[$ADMIN_ID\]" "$CONFIG_FILE"; then
+        echo -e "${GREEN}bot_config.py updated successfully${NC}"
+    else
+        echo -e "${RED}Error: Failed to update bot_config.py${NC}"
+        echo -e "${YELLOW}Expected TOKEN: $TOKEN${NC}"
+        echo -e "${YELLOW}Expected ADMIN_ID: $ADMIN_ID${NC}"
+        exit 1
+    fi
 }
 
 setup_data_directory() {
     echo -e "${YELLOW}Setting up database directory and permissions...${NC}"
-    mkdir -p "$DATA_DIR"
+>U    mkdir -p "$DATA_DIR"
     chmod 777 "$DATA_DIR"
-    rm -f "$DATA_DIR/bot_data.db"
+    rm -f "$DB_FILE"
     echo -e "${GREEN}Database directory configured successfully${NC}"
 }
 
@@ -112,20 +160,11 @@ check_required_files() {
     return 0
 }
 
-fix_message_utils() {
-    echo -e "${YELLOW}Checking and fixing message_utils.py for asyncio import...${NC}"
-    if ! grep -q "import asyncio" "$INSTALL_DIR/utils/message_utils.py"; then
-        echo -e "${YELLOW}Adding import asyncio to message_utils.py...${NC}"
-        sed -i '1i import asyncio' "$INSTALL_DIR/utils/message_utils.py"
-        echo -e "${GREEN}message_utils.py updated successfully${NC}"
-    else
-        echo -e "${GREEN}message_utils.py already has asyncio import${NC}"
-    fi
-}
-
 cleanup_docker() {
     echo -e "${YELLOW}Cleaning up existing Docker containers, images, and volumes...${NC}"
-    sudo docker-compose -f "$COMPOSE_FILE" down --volumes --rmi all 2>/dev/null || true
+    if [ -f "$COMPOSE_FILE" ]; then
+        sudo docker-compose -f "$COMPOSE_FILE" down --volumes --rmi all 2>/dev/null || true
+    fi
     sudo docker images -q -f "reference=$PROJECT_NAME" | sort -u | xargs -r sudo docker rmi 2>/dev/null || true
     sudo docker ps -a -q -f "name=$PROJECT_NAME" | xargs -r sudo docker rm 2>/dev/null || true
     echo -e "${GREEN}Docker cleanup completed${NC}"
@@ -146,19 +185,25 @@ check_container_status() {
 }
 
 install_bot() {
+    echo -e "${YELLOW}Starting bot installation...${NC}"
     if [ -d "$INSTALL_DIR" ]; then
         echo -e "${YELLOW}Existing directory detected. Removing old installation...${NC}"
-        cd "$INSTALL_DIR" 2>/dev/null && cleanup_docker || true
-        sudo rm -rf "$INSTALL_DIR"
+        cd /tmp || { echo -e "${RED}Failed to change to /tmp${NC}"; exit 1; }
+        cleanup_docker
+        sudo rm -rf "$INSTALL_DIR" || { echo -e "${RED}Failed to remove $INSTALL_DIR${NC}"; exit 1; }
+        if [ -d "$INSTALL_DIR" ]; then
+            echo -e "${RED}Error: Directory $INSTALL_DIR still exists after removal attempt${NC}"
+            exit 1
+        fi
     fi
     check_prerequisites
-    echo -e "${YELLOW}Cloning repository from $REPO_URL...${NC}"
-    git clone "$REPO_URL" "$INSTALL_DIR" || { echo -e "${RED}Failed to clone repository${NC}"; exit 1; }
-    cd "$INSTALL_DIR" || exit 1
+    echo -e "${YELLOW}Cloning repository from $REPO_URL into $INSTALL_DIR...${NC}"
+    cd /tmp || { echo -e "${RED}Failed to change to /tmp${NC}"; exit 1; }
+    git clone "$REPO_URL" "$INSTALL_DIR" 2>&1 || { echo -e "${RED}Failed to clone repository${NC}"; exit 1; }
+    cd "$INSTALL_DIR" || { echo -e "${RED}Failed to change to $INSTALL_DIR${NC}"; exit 1; }
     check_required_files || { echo -e "${RED}Required files are missing${NC}"; exit 1; }
-    fix_message_utils
     get_token_and_id || { echo -e "${RED}Failed to collect token and ID${NC}"; exit 1; }
-    create_bot_config
+    edit_bot_config
     setup_data_directory
     echo -e "${YELLOW}Building and starting bot with Docker Compose...${NC}"
     sudo docker-compose build --no-cache || { echo -e "${RED}Failed to build Docker image${NC}"; exit 1; }
@@ -168,11 +213,12 @@ install_bot() {
 }
 
 uninstall_bot() {
+    echo -e "${YELLOW}Uninstalling bot...${NC}"
     if [ -d "$INSTALL_DIR" ]; then
-        echo -e "${YELLOW}Stopping and removing bot...${NC}"
         cd "$INSTALL_DIR" || exit 1
         cleanup_docker
-        sudo rm -rf "$INSTALL_DIR"
+        cd /tmp || { echo -e "${RED}Failed to change to /tmp${NC}"; exit 1; }
+        sudo rm -rf "$INSTALL_DIR" || { echo -e "${RED}Failed to remove $INSTALL_DIR${NC}"; exit 1; }
         echo -e "${GREEN}Bot uninstalled successfully${NC}"
     else
         echo -e "${RED}Bot is not installed!${NC}"
@@ -180,21 +226,36 @@ uninstall_bot() {
 }
 
 update_bot() {
+    echo -e "${YELLOW}Updating bot...${NC}"
     if [ -d "$INSTALL_DIR" ]; then
-        echo -e "${YELLOW}Updating bot...${NC}"
         cd "$INSTALL_DIR" || exit 1
-        if [ -f "$CONFIG_FILE" ]; then
-            cp "$CONFIG_FILE" "/tmp/bot_config.py.bak"
+        # Backup database
+        if [ -f "$DB_FILE" ]; then
+            cp "$DB_FILE" "/tmp/bot_data.db.bak" || { echo -e "${RED}Failed to backup database${NC}"; exit 1; }
         fi
-        git reset --hard || { echo -e "${RED}Failed to reset local changes${NC}"; exit 1; }
-        git clean -fd || { echo -e "${RED}Failed to clean untracked files${NC}"; exit 1; }
+        # Extract token and admin ID
+        extract_token_and_id
+        # Clean up Docker and remove project directory
         cleanup_docker
-        git pull || { echo -e "${RED}Failed to update repository${NC}"; exit 1; }
-        if [ -f "/tmp/bot_config.py.bak" ]; then
-            mv "/tmp/bot_config.py.bak" "$CONFIG_FILE"
+        cd /tmp || { echo -e "${RED}Failed to change to /tmp${NC}"; exit 1; }
+        sudo rm -rf "$INSTALL_DIR" || { echo -e "${RED}Failed to remove $INSTALL_DIR${NC}"; exit 1; }
+        if [ -d "$INSTALL_DIR" ]; then
+            echo -e "${RED}Error: Directory $INSTALL_DIR still exists after removal attempt${NC}"
+            exit 1
         fi
+        # Re-clone repository
+        echo -e "${YELLOW}Cloning repository from $REPO_URL into $INSTALL_DIR...${NC}"
+        git clone "$REPO_URL" "$INSTALL_DIR" 2>&1 || { echo -e "${RED}Failed to clone repository${NC}"; exit 1; }
+        cd "$INSTALL_DIR" || { echo -e "${RED}Failed to change to $INSTALL_DIR${NC}"; exit 1; }
         check_required_files || { echo -e "${RED}Required files are missing${NC}"; exit 1; }
-        fix_message_utils
+        # Restore database
+        if [ -f "/tmp/bot_data.db.bak" ]; then
+            mkdir -p "$DATA_DIR"
+            mv "/tmp/bot_data.db.bak" "$DB_FILE" || { echo -e "${RED}Failed to restore database${NC}"; exit 1; }
+            chmod 777 "$DATA_DIR"
+        fi
+        # Edit config with stored token and admin ID
+        edit_bot_config
         echo -e "${YELLOW}Building and starting bot with Docker Compose...${NC}"
         sudo docker-compose build --no-cache || { echo -e "${RED}Failed to build Docker image${NC}"; exit 1; }
         sudo docker-compose up -d || { echo -e "${RED}Failed to start Docker Compose${NC}"; sudo docker-compose logs; exit 1; }
@@ -206,8 +267,8 @@ update_bot() {
 }
 
 restart_bot() {
+    echo -e "${YELLOW}Restarting bot...${NC}"
     if [ -d "$INSTALL_DIR" ]; then
-        echo -e "${YELLOW}Restarting bot...${NC}"
         cd "$INSTALL_DIR" || exit 1
         sudo docker-compose restart || { echo -e "${RED}Failed to restart bot${NC}"; exit 1; }
         check_container_status || exit 1
@@ -218,11 +279,11 @@ restart_bot() {
 }
 
 reset_token_and_id() {
+    echo -e "${YELLOW}Resetting bot token and admin ID...${NC}"
     if [ -d "$INSTALL_DIR" ]; then
-        echo -e "${YELLOW}Resetting bot token and admin ID...${NC}"
         cd "$INSTALL_DIR" || exit 1
         get_token_and_id || { echo -e "${RED}Failed to collect token and ID${NC}"; exit 1; }
-        create_bot_config
+        edit_bot_config
         restart_bot
     else
         echo -e "${RED}Bot is not installed!${NC}"
