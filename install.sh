@@ -81,6 +81,23 @@ get_token_and_id() {
     done
 }
 
+extract_token_and_id() {
+    echo -e "${YELLOW}Extracting token and admin ID from bot_config.py...${NC}"
+    if [ -f "$CONFIG_FILE" ]; then
+        TOKEN=$(grep -E "^TOKEN=" "$CONFIG_FILE" | cut -d'"' -f2)
+        ADMIN_ID=$(grep -E "^ADMIN_IDS=" "$CONFIG_FILE" | cut -d'[' -f2 | cut -d']' -f1)
+        if [ -n "$TOKEN" ] && [ -n "$ADMIN_ID" ] && [[ "$TOKEN" =~ ^[0-9]+:[A-Za-z0-9_-]+$ ]] && [[ "$ADMIN_ID" =~ ^[0-9]+$ ]]; then
+            if validate_token "$TOKEN"; then
+                echo -e "${GREEN}Valid token and admin ID extracted${NC}"
+                export TOKEN ADMIN_ID
+                return 0
+            fi
+        fi
+        echo -e "${RED}Invalid or missing token/admin ID in bot_config.py${NC}"
+    fi
+    get_token_and_id
+}
+
 edit_bot_config() {
     echo -e "${YELLOW}Editing bot_config.py...${NC}"
     mkdir -p "$INSTALL_DIR"
@@ -179,13 +196,12 @@ update_bot() {
     if [ -d "$INSTALL_DIR" ]; then
         echo -e "${YELLOW}Updating bot...${NC}"
         cd "$INSTALL_DIR" || exit 1
-        # Backup database and config
+        # Backup database
         if [ -f "$DB_FILE" ]; then
             cp "$DB_FILE" "/tmp/bot_data.db.bak"
         fi
-        if [ -f "$CONFIG_FILE" ]; then
-            cp "$CONFIG_FILE" "/tmp/bot_config.py.bak"
-        fi
+        # Extract token and admin ID
+        extract_token_and_id
         # Clean up Docker and remove project directory
         cleanup_docker
         sudo rm -rf "$INSTALL_DIR"
@@ -200,11 +216,7 @@ update_bot() {
             mv "/tmp/bot_data.db.bak" "$DB_FILE"
             chmod 777 "$DATA_DIR"
         fi
-        # Restore and edit config
-        if [ -f "/tmp/bot_config.py.bak" ]; then
-            mv "/tmp/bot_config.py.bak" "$CONFIG_FILE"
-        fi
-        get_token_and_id || { echo -e "${RED}Failed to collect token and ID${NC}"; exit 1; }
+        # Edit config with stored token and admin ID
         edit_bot_config
         echo -e "${YELLOW}Building and starting bot with Docker Compose...${NC}"
         sudo docker-compose build --no-cache || { echo -e "${RED}Failed to build Docker image${NC}"; exit 1; }
@@ -222,48 +234,4 @@ restart_bot() {
         cd "$INSTALL_DIR" || exit 1
         sudo docker-compose restart || { echo -e "${RED}Failed to restart bot${NC}"; exit 1; }
         check_container_status || exit 1
-        echo -e "${GREEN}Bot restarted successfully${NC}"
-    else
-        echo -e "${RED}Bot is not installed!${NC}"
-    fi
-}
-
-reset_token_and_id() {
-    if [ -d "$INSTALL_DIR" ]; then
-        echo -e "${YELLOW}Resetting bot token and admin ID...${NC}"
-        cd "$INSTALL_DIR" || exit 1
-        get_token_and_id || { echo -e "${RED}Failed to collect token and ID${NC}"; exit 1; }
-        edit_bot_config
-        restart_bot
-    else
-        echo -e "${RED}Bot is not installed!${NC}"
-    fi
-}
-
-show_menu() {
-    clear
-    echo -e "${YELLOW}===== MarzGozir Bot Management Menu =====${NC}"
-    echo "1) Install Bot"
-    echo "2) Update Bot"
-    echo "3) Uninstall Bot"
-    echo "4) Change Bot Token and Admin ID"
-    echo "5) Restart Bot"
-    echo "6) Exit"
-    echo -e "${YELLOW}Please select an option (1-6):${NC}"
-}
-
-while true; do
-    show_menu
-    read -r choice
-    case $choice in
-        1) install_bot ;;
-        2) update_bot ;;
-        3) uninstall_bot ;;
-        4) reset_token_and_id ;;
-        5) restart_bot ;;
-        6) echo -e "${GREEN}Exiting program...${NC}"; exit 0 ;;
-        *) echo -e "${RED}Invalid option! Please select a number between 1 and 6.${NC}" ;;
-    esac
-    echo -e "${YELLOW}Press any key to return to the menu...${NC}"
-    read -n 1
-done
+        echo -e
