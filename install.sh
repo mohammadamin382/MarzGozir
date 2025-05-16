@@ -88,7 +88,7 @@ extract_token_and_id() {
     if [ -f "$CONFIG_FILE" ]; then
         echo -e "${YELLOW}Current bot_config.py content:${NC}"
         cat "$CONFIG_FILE"
-        TOKEN=$(grep -E "^TOKEN\s*=" "$CONFIG_FILE" | sed -E "s/TOKEN\s*=\s*['\"](.*)['\"]/\1/")
+        TOKEN=$(grep -E "^TOKEN\s*=" "$CONFIG_FILE" | sed -E "s/TOKEN\s*=\s*['\"]?([^'\"]+)['\"]?/\1/" | tr -d ' ')
         ADMIN_ID=$(grep -E "^ADMIN_IDS\s*=" "$CONFIG_FILE" | sed -E "s/ADMIN_IDS\s*=\s*\[(.*)\]/\1/" | tr -d ' ')
         if [ -n "$TOKEN" ] && [ -n "$ADMIN_ID" ] && [[ "$TOKEN" =~ ^[0-9]+:[A-Za-z0-9_-]+$ ]] && [[ "$ADMIN_ID" =~ ^[0-9]+$ ]]; then
             echo -e "${YELLOW}Extracted TOKEN: $TOKEN${NC}"
@@ -118,6 +118,8 @@ DB_PATH = "bot_data.db"
 CACHE_DURATION = 30
 EOF
     fi
+    # Fix any malformed TOKEN line
+    sed -i 's|^TOKEN\s*=\s*SET_YOUR_TOKEN.*|TOKEN = "SET_YOUR_TOKEN"|' "$CONFIG_FILE"
     echo -e "${YELLOW}Before edit - bot_config.py content:${NC}"
     cat "$CONFIG_FILE"
     echo -e "${YELLOW}Using TOKEN: $TOKEN${NC}"
