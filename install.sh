@@ -118,7 +118,7 @@ DB_PATH = "bot_data.db"
 CACHE_DURATION = 30
 EOF
     fi
-    # Fix any malformed TOKEN line
+    # Fix malformed TOKEN line
     sed -i 's|^TOKEN\s*=\s*SET_YOUR_TOKEN.*|TOKEN = "SET_YOUR_TOKEN"|' "$CONFIG_FILE"
     echo -e "${YELLOW}Before edit - bot_config.py content:${NC}"
     cat "$CONFIG_FILE"
@@ -126,6 +126,9 @@ EOF
     echo -e "${YELLOW}Using ADMIN_ID: $ADMIN_ID${NC}"
     sed -i "s|^TOKEN\s*=\s*['\"].*['\"]|TOKEN = \"$TOKEN\"|" "$CONFIG_FILE"
     sed -i "s|^ADMIN_IDS\s*=\s*\[.*\]|ADMIN_IDS = [$ADMIN_ID]|" "$CONFIG_FILE"
+    # Ensure CACHE_DURATION and remove VERSION if present
+    sed -i "s|^CACHE_DURATION\s*=\s*.*|CACHE_DURATION = 30|" "$CONFIG_FILE"
+    sed -i '/^VERSION\s*=/d' "$CONFIG_FILE"
     chmod 644 "$CONFIG_FILE"
     echo -e "${YELLOW}After edit - bot_config.py content:${NC}"
     cat "$CONFIG_FILE"
@@ -162,7 +165,9 @@ check_required_files() {
 
 cleanup_docker() {
     echo -e "${YELLOW}Cleaning up existing Docker containers, images, and volumes...${NC}"
-    sudo docker-compose -f "$COMPOSE_FILE" down --volumes --rmi all 2>/dev/null || true
+    if [ -f "$COMPOSE_FILE" ]; then
+        sudo docker-compose -f "$COMPOSE_FILE" down --volumes --rmi all 2>/dev/null || true
+    fi
     sudo docker images -q -f "reference=$PROJECT_NAME" | sort -u | xargs -r sudo docker rmi 2>/dev/null || true
     sudo docker ps -a -q -f "name=$PROJECT_NAME" | xargs -r sudo docker rm 2>/dev/null || true
     echo -e "${GREEN}Docker cleanup completed${NC}"
@@ -183,15 +188,22 @@ check_container_status() {
 }
 
 install_bot() {
+    echo -e "${YELLOW}Starting bot installation...${NC}"
     if [ -d "$INSTALL_DIR" ]; then
         echo -e "${YELLOW}Existing directory detected. Removing old installation...${NC}"
-        cd "$INSTALL_DIR" 2>/dev/null && cleanup_docker || true
-        sudo rm -rf "$INSTALL_DIR"
+        cd /tmp || { echo -e "${RED}Failed to change to /tmp${NC}"; exit 1; }
+        cleanup_docker
+        sudo rm -rf "$INSTALL_DIR" || { echo -e "${RED}Failed to remove $INSTALL_DIR${NC}"; exit 1; }
+        if [ -d "$INSTALL_DIR" ]; then
+            echo -e "${RED}Error: Directory $INSTALL_DIR still exists after removal attempt${NC}"
+            exit 1
+        fi
     fi
     check_prerequisites
-    echo -e "${YELLOW}Cloning repository from $REPO_URL...${NC}"
-    git clone "$REPO_URL" "$INSTALL_DIR" || { echo -e "${RED}Failed to clone repository${NC}"; exit 1; }
-    cd "$INSTALL_DIR" || exit 1
+    echo -e "${YELLOW}Cloning repository from $REPO_URL into $INSTALL_DIR...${NC}"
+    cd /tmp || { echo -e "${RED}Failed to change to /tmp${NC}"; exit 1; }
+    git clone "$REPO_URL" "$INSTALL_DIR" 2>&1 || { echo -e "${RED}Failed to clone repository${NC}"; exit 1; }
+    cd "$INSTALL_DIR" || { echo -e "${RED}Failed to change to $INSTALL_DIR${NC}"; exit 1; }
     check_required_files || { echo -e "${RED}Required files are missing${NC}"; exit 1; }
     get_token_and_id || { echo -e "${RED}Failed to collect token and ID${NC}"; exit 1; }
     edit_bot_config
@@ -204,11 +216,12 @@ install_bot() {
 }
 
 uninstall_bot() {
+    echo -e "${YELLOW}Uninstalling bot...${NC}"
     if [ -d "$INSTALL_DIR" ]; then
-        echo -e "${YELLOW}Stopping and removing bot...${NC}"
         cd "$INSTALL_DIR" || exit 1
         cleanup_docker
-        sudo rm -rf "$INSTALL_DIR"
+        cd /tmp || { echo -e "${RED}Failed to change to /tmp${NC}"; exit 1; }
+        sudo rm -rf "$INSTALL_DIR" || { echo -e "${RED}Failed to remove $INSTALL_DIR${NC}"; exit 1; }
         echo -e "${GREEN}Bot uninstalled successfully${NC}"
     else
         echo -e "${RED}Bot is not installed!${NC}"
@@ -216,27 +229,32 @@ uninstall_bot() {
 }
 
 update_bot() {
+    echo -e "${YELLOW}Updating bot...${NC}"
     if [ -d "$INSTALL_DIR" ]; then
-        echo -e "${YELLOW}Updating bot...${NC}"
         cd "$INSTALL_DIR" || exit 1
         # Backup database
         if [ -f "$DB_FILE" ]; then
-            cp "$DB_FILE" "/tmp/bot_data.db.bak"
+            cp "$DB_FILE" "/tmp/bot_data.db.bak" || { echo -e "${RED}Failed to backup database${NC}"; exit 1; }
         fi
         # Extract token and admin ID
         extract_token_and_id
         # Clean up Docker and remove project directory
         cleanup_docker
-        sudo rm -rf "$INSTALL_DIR"
+        cd /tmp || { echo -e "${RED}Failed to change to /tmp${NC}"; exit 1; }
+        sudo rm -rf "$INSTALL_DIR" || { echo -e "${RED}Failed to remove $INSTALL_DIR${NC}"; exit 1; }
+        if [ -d "$INSTALL_DIR" ]; then
+            echo -e "${RED}Error: Directory $INSTALL_DIR still exists after removal attempt${NC}"
+            exit 1
+        fi
         # Re-clone repository
-        echo -e "${YELLOW}Cloning repository from $REPO_URL...${NC}"
-        git clone "$REPO_URL" "$INSTALL_DIR" || { echo -e "${RED}Failed to clone repository${NC}"; exit 1; }
-        cd "$INSTALL_DIR" || exit 1
+        echo -e "${YELLOW}Cloning repository from $REPO_URL into $INSTALL_DIR...${NC}"
+        git clone "$REPO_URL" "$INSTALL_DIR" 2>&1 || { echo -e "${RED}Failed to clone repository${NC}"; exit 1; }
+        cd "$INSTALL_DIR" || { echo -e "${RED}Failed to change to $INSTALL_DIR${NC}"; exit 1; }
         check_required_files || { echo -e "${RED}Required files are missing${NC}"; exit 1; }
         # Restore database
         if [ -f "/tmp/bot_data.db.bak" ]; then
             mkdir -p "$DATA_DIR"
-            mv "/tmp/bot_data.db.bak" "$DB_FILE"
+            mv "/tmp/bot_data.db.bak" "$DB_FILE" || { echo -e "${RED}Failed to restore database${NC}"; exit 1; }
             chmod 777 "$DATA_DIR"
         fi
         # Edit config with stored token and admin ID
@@ -252,8 +270,8 @@ update_bot() {
 }
 
 restart_bot() {
+    echo -e "${YELLOW}Restarting bot...${NC}"
     if [ -d "$INSTALL_DIR" ]; then
-        echo -e "${YELLOW}Restarting bot...${NC}"
         cd "$INSTALL_DIR" || exit 1
         sudo docker-compose restart || { echo -e "${RED}Failed to restart bot${NC}"; exit 1; }
         check_container_status || exit 1
@@ -264,8 +282,8 @@ restart_bot() {
 }
 
 reset_token_and_id() {
+    echo -e "${YELLOW}Resetting bot token and admin ID...${NC}"
     if [ -d "$INSTALL_DIR" ]; then
-        echo -e "${YELLOW}Resetting bot token and admin ID...${NC}"
         cd "$INSTALL_DIR" || exit 1
         get_token_and_id || { echo -e "${RED}Failed to collect token and ID${NC}"; exit 1; }
         edit_bot_config
