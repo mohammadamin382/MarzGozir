@@ -76,6 +76,8 @@ get_token_and_id() {
             continue
         fi
         echo -e "${GREEN}Bot token and admin ID successfully collected${NC}"
+        echo -e "${YELLOW}Collected TOKEN: $TOKEN${NC}"
+        echo -e "${YELLOW}Collected ADMIN_ID: $ADMIN_ID${NC}"
         export TOKEN ADMIN_ID
         return 0
     done
@@ -84,9 +86,13 @@ get_token_and_id() {
 extract_token_and_id() {
     echo -e "${YELLOW}Extracting token and admin ID from bot_config.py...${NC}"
     if [ -f "$CONFIG_FILE" ]; then
+        echo -e "${YELLOW}Current bot_config.py content:${NC}"
+        cat "$CONFIG_FILE"
         TOKEN=$(grep -E "^TOKEN\s*=" "$CONFIG_FILE" | sed -E "s/TOKEN\s*=\s*['\"](.*)['\"]/\1/")
         ADMIN_ID=$(grep -E "^ADMIN_IDS\s*=" "$CONFIG_FILE" | sed -E "s/ADMIN_IDS\s*=\s*\[(.*)\]/\1/" | tr -d ' ')
         if [ -n "$TOKEN" ] && [ -n "$ADMIN_ID" ] && [[ "$TOKEN" =~ ^[0-9]+:[A-Za-z0-9_-]+$ ]] && [[ "$ADMIN_ID" =~ ^[0-9]+$ ]]; then
+            echo -e "${YELLOW}Extracted TOKEN: $TOKEN${NC}"
+            echo -e "${YELLOW}Extracted ADMIN_ID: $ADMIN_ID${NC}"
             if validate_token "$TOKEN"; then
                 echo -e "${GREEN}Valid token and admin ID extracted${NC}"
                 export TOKEN ADMIN_ID
@@ -94,6 +100,8 @@ extract_token_and_id() {
             fi
         fi
         echo -e "${RED}Invalid or missing token/admin ID in bot_config.py${NC}"
+    else
+        echo -e "${RED}bot_config.py not found${NC}"
     fi
     get_token_and_id
 }
@@ -110,14 +118,22 @@ DB_PATH = "bot_data.db"
 CACHE_DURATION = 30
 EOF
     fi
-    sed -i "s|^TOKEN\s*=.*|TOKEN = \"$TOKEN\"|" "$CONFIG_FILE"
-    sed -i "s|^ADMIN_IDS\s*=.*|ADMIN_IDS = [$ADMIN_ID]|" "$CONFIG_FILE"
+    echo -e "${YELLOW}Before edit - bot_config.py content:${NC}"
+    cat "$CONFIG_FILE"
+    echo -e "${YELLOW}Using TOKEN: $TOKEN${NC}"
+    echo -e "${YELLOW}Using ADMIN_ID: $ADMIN_ID${NC}"
+    sed -i "s|^TOKEN\s*=\s*['\"].*['\"]|TOKEN = \"$TOKEN\"|" "$CONFIG_FILE"
+    sed -i "s|^ADMIN_IDS\s*=\s*\[.*\]|ADMIN_IDS = [$ADMIN_ID]|" "$CONFIG_FILE"
     chmod 644 "$CONFIG_FILE"
+    echo -e "${YELLOW}After edit - bot_config.py content:${NC}"
+    cat "$CONFIG_FILE"
     # Verify the changes
     if grep -q "TOKEN = \"$TOKEN\"" "$CONFIG_FILE" && grep -q "ADMIN_IDS = \[$ADMIN_ID\]" "$CONFIG_FILE"; then
         echo -e "${GREEN}bot_config.py updated successfully${NC}"
     else
         echo -e "${RED}Error: Failed to update bot_config.py${NC}"
+        echo -e "${YELLOW}Expected TOKEN: $TOKEN${NC}"
+        echo -e "${YELLOW}Expected ADMIN_ID: $ADMIN_ID${NC}"
         exit 1
     fi
 }
