@@ -40,7 +40,7 @@ async def start(message: types.Message, state: FSMContext, bot: Bot):
         return
     panels = get_panels(chat_id)
     if panels:
-        message = await bot.send_message(chat_id, f"🎉 به ربات مدیر خوش آمدید (نسخه {VERSION})", reply_markup=main_menu(is_owner(chat_id)))
+        message = await bot.send_message(chat_id, f"🎉 به ربات مدیر خوش آمدید)", reply_markup=main_menu(is_owner(chat_id)))
         await state.update_data(login_messages=[message.message_id])
     else:
         buttons = [
