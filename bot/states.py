@@ -19,4 +19,5 @@ class Form(StatesGroup):
     awaiting_inbounds_selection_for_existing_user = State()
     awaiting_new_data_limit = State()
     awaiting_new_expire_time = State()
-    awaiting_log_channel = State()  
+    awaiting_log_channel = State()
+    awaiting_user_action = State()
