@@ -39,7 +39,7 @@ curl -o install.sh -L https://raw.githubusercontent.com/mahyyar/marzgozir/main/i
 ## 📬 ارتباط با ما
 برای پشتیبانی یا ارائه پیشنهادات، از طریق آیدی تلگرام زیر با ما در ارتباط باشید:
 
-- [@mahyyar](https://t.me/mahyyar)
+- [@imahiar](https://t.me/imahiar)
 
 ---
 <div align="center">
