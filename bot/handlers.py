@@ -1,6 +1,17 @@
 import re
 import asyncio
 import logging
+import os
+
+# Debug logging disabled for production/end of project
+# project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+# log_file_path = os.path.join(project_root, 'debug.log')
+# file_handler = logging.FileHandler(log_file_path, encoding='utf-8')
+# file_handler.setLevel(logging.DEBUG)
+# formatter = logging.Formatter('%(asctime)s [%(levelname)s] %(name)s: %(message)s')
+# file_handler.setFormatter(formatter)
+# logging.getLogger().addHandler(file_handler)
+logging.basicConfig(level=logging.WARNING)
 import uuid
 from datetime import datetime, timezone
 from aiogram import Bot, types
@@ -8,7 +19,7 @@ from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 from bot_config import VERSION, ADMIN_IDS
 from database.db import get_panels, add_admin, remove_admin, get_admins, delete_panel, save_panel, set_log_channel, get_log_channel
-from bot.menus import config_selection_menu, delete_panel_menu, main_menu, admin_management_menu, note_menu, panel_selection_menu, panel_action_menu, user_action_menu, create_menu_layout, panel_login_menu, protocol_selection_menu
+from bot.menus import config_selection_menu, delete_panel_menu, main_menu, admin_management_menu, note_menu, panel_selection_menu, panel_action_menu, user_action_menu, create_menu_layout, panel_login_menu, protocol_selection_menu, users_list_menu
 from bot.states import Form
 from api.marzban_api import create_user_logic, show_user_info, delete_user_logic, disable_user_logic, enable_user_logic, delete_configs_logic, get_users_stats
 from utils.message_utils import cleanup_messages
@@ -83,6 +94,7 @@ async def button_callback(query: types.CallbackQuery, state: FSMContext, bot: Bo
     chat_id = query.from_user.id
     data = query.data
     await cleanup_messages(bot, chat_id, state)
+    from api.marzban_api import fetch_users_batch
     if data == "add_server":
         await state.set_state(Form.awaiting_panel_alias)
         message = await bot.send_message(chat_id, "📝 لطفاً یک نام مستعار برای پنل وارد کنید:", reply_markup=panel_login_menu())
@@ -209,8 +221,194 @@ async def button_callback(query: types.CallbackQuery, state: FSMContext, bot: Bo
         await state.update_data(login_messages=[message.message_id])
     elif data == "search_user":
         await state.set_state(Form.awaiting_search_username)
-        message = await bot.send_message(chat_id, "🔍 نام کاربری را وارد کنید:")
+        from aiogram.types import ReplyKeyboardMarkup, KeyboardButton
+        # Instead of reply keyboard, use inline keyboard for consistency
+        from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="🔙 بازگشت", callback_data="back_to_panel_action_menu")]
+        ])
+        message = await bot.send_message(chat_id, "🔍 نام کاربری را وارد کنید:", reply_markup=keyboard)
         await state.update_data(login_messages=[message.message_id])
+    elif data == "list_users":
+        # نمایش لیست کاربران پنل انتخاب‌شده
+        panels = get_panels(chat_id)
+        user_data = await state.get_data()
+        selected_panel_alias = user_data.get("selected_panel_alias")
+        if not selected_panel_alias:
+            message = await bot.send_message(chat_id, "⚠️ لطفاً ابتدا یک پنل انتخاب کنید.")
+            await state.update_data(login_messages=[message.message_id])
+            return
+        panel = next((p for p in panels if p[0] == selected_panel_alias), None)
+        if not panel:
+            message = await bot.send_message(chat_id, "⚠️ پنل انتخاب‌شده یافت نشد.")
+            await state.update_data(login_messages=[message.message_id])
+            return
+        try:
+            page = 0
+            limit = 21
+            users = await fetch_users_batch(panel[1], panel[2], page*limit, limit)
+            # Try to get total user count if available (optional, fallback to next/prev only)
+            total_count = None
+            if hasattr(fetch_users_batch, 'get_total_count'):
+                total_count = await fetch_users_batch.get_total_count(panel[1], panel[2])
+            legend = (
+                "👥 لیست کاربران:\n"
+                "\n"
+                "⏰ منقضی\n"
+                "🟠 توقف (on hold)\n"
+                "🚫 محدود (حجم تمام)\n"
+                "✅ فعال\n"
+                "⛔ غیرفعال"
+            )
+            message = await bot.send_message(chat_id, legend, reply_markup=users_list_menu(users, page=page, limit=limit, total_count=total_count))
+            await state.update_data(login_messages=[message.message_id], users_page=page)
+        except Exception as e:
+            message = await bot.send_message(chat_id, f"❌ خطا در دریافت کاربران: {str(e)}")
+            await state.update_data(login_messages=[message.message_id])
+        return
+    elif data.startswith("next_users_page:") or data.startswith("prev_users_page:"):
+        # Pagination for user list
+        page_data = data.split(":")
+        direction = page_data[0]
+        page = int(page_data[1])
+        user_data = await state.get_data()
+        selected_panel_alias = user_data.get("selected_panel_alias")
+        if not selected_panel_alias:
+            message = await bot.send_message(chat_id, "⚠️ لطفاً ابتدا یک پنل انتخاب کنید.")
+            await state.update_data(login_messages=[message.message_id])
+            return
+        panels = get_panels(chat_id)
+        panel = next((p for p in panels if p[0] == selected_panel_alias), None)
+        if not panel:
+            message = await bot.send_message(chat_id, "⚠️ پنل انتخاب‌شده یافت نشد.")
+            await state.update_data(login_messages=[message.message_id])
+            return
+        limit = 21
+        import traceback
+        logger.warning(f"[DEBUG] Calling fetch_users_batch: offset={page*limit}, limit={limit}, page={page}")
+        try:
+            users = await fetch_users_batch(panel[1], panel[2], page*limit, limit)
+            logger.warning(f"[DEBUG] fetch_users_batch returned {len(users)} users for page={page}")
+        except Exception as e:
+            tb = traceback.format_exc()
+            logger.error(f"Error in pagination fetch_users_batch: {str(e)}\n{tb}")
+            message = await bot.send_message(chat_id, f"❌ خطا در دریافت کاربران صفحه {page+1}: {str(e)}\n{tb}")
+            await state.update_data(login_messages=[message.message_id])
+            return
+        total_count = None
+        if hasattr(fetch_users_batch, 'get_total_count'):
+            try:
+                total_count = await fetch_users_batch.get_total_count(panel[1], panel[2])
+            except Exception as e:
+                logger.error(f"Error in get_total_count: {str(e)}")
+        await cleanup_messages(bot, chat_id, state)
+        legend = (
+            "👥 لیست کاربران:\n"
+            "\n"
+            "⏰ منقضی\n"
+            "🟠 توقف (on hold)\n"
+            "🚫 محدود (حجم تمام)\n"
+            "✅ فعال\n"
+            "⛔ غیرفعال"
+        )
+        message = await bot.send_message(chat_id, legend, reply_markup=users_list_menu(users, page=page, limit=limit, total_count=total_count))
+        await state.update_data(login_messages=[message.message_id], users_page=page)
+        return
+
+    elif data == "back_to_panel_action_menu":
+        # بازگشت از لیست کاربران به منوی عملیات پنل
+        user_data = await state.get_data()
+        selected_panel_alias = user_data.get("selected_panel_alias")
+        if not selected_panel_alias:
+            message = await bot.send_message(chat_id, "⚠️ لطفاً ابتدا یک پنل انتخاب کنید.")
+            await state.update_data(login_messages=[message.message_id])
+            return
+        message = await bot.send_message(chat_id, "منوی عملیات پنل:", reply_markup=panel_action_menu())
+        await state.update_data(login_messages=[message.message_id])
+        return
+
+    elif data == "back_to_users_list_menu":
+        # بازگشت از منوی کاربر به لیست کاربران
+        user_data = await state.get_data()
+        selected_panel_alias = user_data.get("selected_panel_alias")
+        page = user_data.get("users_page", 0)
+        if not selected_panel_alias:
+            message = await bot.send_message(chat_id, "⚠️ لطفاً ابتدا یک پنل انتخاب کنید.")
+            await state.update_data(login_messages=[message.message_id])
+            return
+        panels = get_panels(chat_id)
+        panel = next((p for p in panels if p[0] == selected_panel_alias), None)
+        if not panel:
+            message = await bot.send_message(chat_id, "⚠️ پنل انتخاب‌شده یافت نشد.")
+            await state.update_data(login_messages=[message.message_id])
+            return
+        limit = 21
+        try:
+            users = await fetch_users_batch(panel[1], panel[2], page*limit, limit)
+        except Exception as e:
+            logger.error(f"Error in back_to_users_list_menu fetch_users_batch: {str(e)}")
+            message = await bot.send_message(chat_id, f"❌ خطا در دریافت کاربران: {str(e)}")
+            await state.update_data(login_messages=[message.message_id])
+            return
+        total_count = None
+        if hasattr(fetch_users_batch, 'get_total_count'):
+            try:
+                total_count = await fetch_users_batch.get_total_count(panel[1], panel[2])
+            except Exception as e:
+                logger.error(f"Error in get_total_count: {str(e)}")
+        await cleanup_messages(bot, chat_id, state)
+        # Fetch user stats
+        try:
+            stats = await get_users_stats(panel[1], panel[2])
+        except Exception as e:
+            stats = {}
+        total = stats.get('total', total_count if total_count is not None else '?')
+        active = stats.get('active', '?')
+        disabled = stats.get('disabled', '?')
+        expired = stats.get('expired', '?')
+        on_hold = stats.get('on_hold', '?')
+        # Page info
+        total_pages = 1
+        if total_count is not None:
+            total_pages = (total_count + limit - 1) // limit
+        page_info = f"صفحه {page+1} از {total_pages}"
+        legend = (
+            f"👥 لیست کاربران ({page_info})\n"
+            f"کل: {total} | ✅فعال: {active} | ⛔غیرفعال: {disabled} | ⏰منقضی: {expired} | 🟠توقف: {on_hold}\n"
+            "----------------------\n"
+            "⏰ منقضی\n"
+            "🟠 توقف (on hold)\n"
+            "🚫 محدود (حجم تمام)\n"
+            "✅ فعال\n"
+            "⛔ غیرفعال"
+        )
+        message = await bot.send_message(chat_id, legend, reply_markup=users_list_menu(users, page=page, limit=limit, total_count=total_count))
+        await state.update_data(login_messages=[message.message_id], users_page=page)
+        return
+
+    elif data == "back_to_user_menu_note":
+        # بازگشت از منوی یادداشت به منوی قبلی کاربر
+        user_data = await state.get_data()
+        username = user_data.get("username")
+        if not username:
+            message = await bot.send_message(chat_id, "⚠️ نام کاربر یافت نشد.")
+            await state.update_data(login_messages=[message.message_id])
+            return
+        message = await bot.send_message(chat_id, f"مدیریت کاربر: {username}", reply_markup=user_action_menu(username))
+        await state.update_data(login_messages=[message.message_id])
+        return
+
+    elif data.startswith("user_info:"):
+        # نمایش اطلاعات کامل کاربر و منوی عملیات
+        username = data.split(":", 1)[1]
+        user_data = await state.get_data()
+        selected_panel_alias = user_data.get("selected_panel_alias")
+        if not selected_panel_alias:
+            message = await bot.send_message(chat_id, "⚠️ لطفاً ابتدا یک پنل انتخاب کنید.")
+            await state.update_data(login_messages=[message.message_id])
+            return
+        await show_user_info(query, state, username, chat_id, selected_panel_alias, bot)
+        return
     elif data == "create_user":
         await state.set_state(Form.awaiting_create_username)
         buttons = [InlineKeyboardButton(text="🎲 تولید نام تصادفی", callback_data="random_username")]
@@ -680,7 +878,8 @@ async def message_handler(message: types.Message, state: FSMContext, bot: Bot):
             return
         try:
             input_value = text.strip()
-            new_data_limit = float(input_value) * 1e9 if float(input_value) > 0 else 0
+            # Ensure exactly N GB is set (1 GB = 1024 ** 3 bytes)
+            new_data_limit = int(float(input_value) * 1024 ** 3) if float(input_value) > 0 else 0
             async with aiohttp.ClientSession() as session:
                 headers = {"Authorization": f"Bearer {panel[2]}", "Content-Type": "application/json"}
                 async with session.get(f"{panel[1].rstrip('/')}/api/user/{username}", headers=headers) as response:
@@ -690,16 +889,26 @@ async def message_handler(message: types.Message, state: FSMContext, bot: Bot):
                         message = await bot.send_message(chat_id, "❌ کاربر یافت نشد.")
                         await state.update_data(login_messages=[message.message_id])
                         return
+                # Always reset used_traffic to 0 when setting a new data limit
                 current_user["data_limit"] = new_data_limit
+                current_user["used_traffic"] = 0
                 if "status" not in current_user or current_user["status"] not in ["active", "disabled", "on_hold"]:
                     current_user["status"] = "active"
                 logger.debug(f"Sending data to API: {current_user}")
                 async with session.put(f"{panel[1].rstrip('/')}/api/user/{username}", json=current_user, headers=headers) as response:
                     if response.status == 200:
-                        message = await bot.send_message(chat_id, f"✅ حجم کاربر '{username}' به {format_traffic(new_data_limit) if new_data_limit else 'نامحدود'} تنظیم شد.", reply_markup=user_action_menu(username))
-                        await state.update_data(login_messages=[message.message_id])
-                        await log_to_channel(bot, chat_id, "تغییر حجم کاربر", f"حجم کاربر {username} به {format_traffic(new_data_limit) if new_data_limit else 'نامحدود'} تنظیم شد.")
-                        await state.clear()
+                        # Reset user traffic via Marzban API
+                        reset_url = f"{panel[1].rstrip('/')}/api/user/{username}/reset"
+                        async with session.post(reset_url, headers=headers) as reset_response:
+                            if reset_response.status == 200:
+                                message = await bot.send_message(chat_id, f"✅ حجم کاربر '{username}' به {format_traffic(new_data_limit) if new_data_limit else 'نامحدود'} تنظیم و ترافیک ریست شد.", reply_markup=user_action_menu(username))
+                                await state.update_data(login_messages=[message.message_id])
+                                await log_to_channel(bot, chat_id, "تغییر حجم کاربر", f"حجم کاربر {username} به {format_traffic(new_data_limit) if new_data_limit else 'نامحدود'} تنظیم و ترافیک ریست شد.")
+                            else:
+                                message = await bot.send_message(chat_id, f"⚠️ حجم تنظیم شد اما ریست ترافیک انجام نشد! ({reset_response.status})")
+                                await state.update_data(login_messages=[message.message_id])
+                        # Remain in user management context for further actions
+                        await state.set_state(Form.awaiting_user_action)
                     else:
                         result = await response.json()
                         message = await bot.send_message(chat_id, f"❌ خطا در تنظیم حجم: {result.get('detail', 'No details')}")

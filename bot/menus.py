@@ -62,9 +62,60 @@ def panel_action_menu() -> InlineKeyboardMarkup:
     buttons = [
         InlineKeyboardButton(text="🔍 جستجوی کاربر", callback_data="search_user"),
         InlineKeyboardButton(text="➕ ایجاد کاربر", callback_data="create_user"),
+        InlineKeyboardButton(text="👥 کاربران", callback_data="list_users"),
         InlineKeyboardButton(text="🔙 بازگشت به انتخاب پنل", callback_data="back_to_panel_selection")
     ]
     return create_menu_layout(buttons, row_width=2)
+
+def users_list_menu(users: list, page: int = 0, limit: int = 21, total_count: int = None, stats: dict = None, total_pages: int = None) -> InlineKeyboardMarkup:
+    # users: list of user dicts
+    def get_status_emoji(user):
+        status = user.get('status', '').lower()
+        expire = user.get('expire')
+        data_limit = user.get('data_limit', 0) or 0
+        used_traffic = user.get('used_traffic', 0) or 0
+        import time
+        now = int(time.time())
+        # Expired: expire exists and is in the past
+        if expire and expire > 0 and expire < now:
+            return '⏰'  # Expired
+        if status == 'on_hold':
+            return '🟠'  # On hold
+        if status == 'active':
+            if data_limit > 0 and used_traffic >= data_limit:
+                return '🚫'  # Limited
+            else:
+                return '✅'  # Active
+        elif status == 'disabled':
+            return '⛔'
+        else:
+            return '❓'
+    buttons = []
+
+    for user in users:
+        username = user.get('username', '-')
+        emoji = get_status_emoji(user)
+        buttons.append(InlineKeyboardButton(text=f"{emoji} {username}", callback_data=f"user_info:{username}"))
+    # Pagination controls
+    nav_buttons = []
+    # Show prev if not first page
+    if page > 0:
+        nav_buttons.append(InlineKeyboardButton(text="⬅️ قبلی", callback_data=f"prev_users_page:{page-1}"))
+    # Show next if there are more users after this page
+    has_next = False
+    if total_count is not None:
+        if (page + 1) * limit < total_count:
+            has_next = True
+    elif len(users) == limit:
+        has_next = True
+    if has_next:
+        nav_buttons.append(InlineKeyboardButton(text="بعدی ➡️", callback_data=f"next_users_page:{page+1}"))
+    if nav_buttons:
+        buttons.extend(nav_buttons)
+    # Add back button to user list
+    buttons.append(InlineKeyboardButton(text="🔙 بازگشت", callback_data="back_to_panel_action_menu"))
+    # 7 rows, 3 per row
+    return create_menu_layout(buttons, row_width=3)
 
 def user_action_menu(username: str) -> InlineKeyboardMarkup:
     menu = InlineKeyboardMarkup(inline_keyboard=[], row_width=2)
@@ -86,14 +137,15 @@ def user_action_menu(username: str) -> InlineKeyboardMarkup:
             InlineKeyboardButton(text="⏰ تنظیم زمان انقضا", callback_data=f"set_expire_time:{username}")
         ],
         [
-            InlineKeyboardButton(text="🔙 بازگشت به انتخاب پنل", callback_data="back_to_panel_selection")
+            InlineKeyboardButton(text="🔙 بازگشت به لیست کاربران", callback_data="back_to_users_list_menu")
         ]
     ]
     return menu
 
 def note_menu() -> InlineKeyboardMarkup:
     buttons = [
-        InlineKeyboardButton(text="📝 بدون یادداشت", callback_data="set_note_none")
+        InlineKeyboardButton(text="📝 بدون یادداشت", callback_data="set_note_none"),
+        InlineKeyboardButton(text="🔙 بازگشت", callback_data="back_to_user_menu_note")
     ]
     return create_menu_layout(buttons, row_width=1)
 
