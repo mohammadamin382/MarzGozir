@@ -9,4 +9,5 @@ def format_expire_time(expire_timestamp: int) -> str:
     return f"{days_left} روز 📅" if days_left >= 0 else "منقضی شده ⛔"
 
 def format_traffic(traffic: int) -> str:
-    return f"{traffic / 1e9:.2f} GB 📊"
+    # Use binary GB (1 GB = 1024 ** 3 bytes)
+    return f"{traffic / (1024 ** 3):.2f} GB 📊"
