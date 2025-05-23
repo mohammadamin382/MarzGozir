@@ -2,16 +2,6 @@ import re
 import asyncio
 import logging
 import os
-
-# Debug logging disabled for production/end of project
-# project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-# log_file_path = os.path.join(project_root, 'debug.log')
-# file_handler = logging.FileHandler(log_file_path, encoding='utf-8')
-# file_handler.setLevel(logging.DEBUG)
-# formatter = logging.Formatter('%(asctime)s [%(levelname)s] %(name)s: %(message)s')
-# file_handler.setFormatter(formatter)
-# logging.getLogger().addHandler(file_handler)
-logging.basicConfig(level=logging.WARNING)
 import uuid
 from datetime import datetime, timezone
 from aiogram import Bot, types
@@ -32,6 +22,7 @@ import socket
 from aiogram.types import InlineKeyboardButton
 
 logger = logging.getLogger(__name__)
+logging.basicConfig(level=logging.WARNING)
 
 def is_owner(chat_id: int) -> bool:
     return chat_id in ADMIN_IDS
