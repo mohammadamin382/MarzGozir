@@ -14,6 +14,7 @@ def create_menu_layout(buttons: List[Optional[InlineKeyboardButton]], row_width:
         menu.inline_keyboard.append(current_row)
     return menu
 
+
 def main_menu(is_owner: bool) -> InlineKeyboardMarkup:
     buttons = [
         InlineKeyboardButton(text="➕ افزودن پنل جدید", callback_data="add_server"),
