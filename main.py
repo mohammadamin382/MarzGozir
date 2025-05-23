@@ -21,5 +21,7 @@ async def main():
         await bot.session.close()
 
 if __name__ == "__main__":
+    from database.db import init_db
+    init_db()  # Ensure DB is created if not exists
     import asyncio
     asyncio.run(main())
