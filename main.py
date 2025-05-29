@@ -1,27 +1,40 @@
 import logging
-from aiogram import Bot, Dispatcher
-from aiogram.filters import Command
-from bot.handlers import start, button_callback, message_handler
+import telebot
+from telebot import types
+from bot.handlers import TelebotHandlers
 from bot_config import TOKEN
+import threading
+import time
+from database.db import init_db
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-async def main():
-    bot = Bot(token=TOKEN)
-    dp = Dispatcher()
+def main():
+    bot = telebot.TeleBot(TOKEN)
+    handlers = TelebotHandlers(bot)
     
-    dp.message.register(start, Command(commands=["start"]))
-    dp.callback_query.register(button_callback)
-    dp.message.register(message_handler)
+    # Register handlers
+    @bot.message_handler(commands=['start'])
+    def start_handler(message):
+        handlers.start(message)
+    
+    @bot.callback_query_handler(func=lambda call: True)
+    def callback_handler(call):
+        handlers.button_callback(call)
+    
+    @bot.message_handler(func=lambda message: True, content_types=['text'])
+    def message_handler(message):
+        handlers.message_handler(message)
+    
     try:
         logger.info("Starting bot...")
-        await dp.start_polling(bot)
-    finally:
-        await bot.session.close()
+        bot.infinity_polling(none_stop=True, interval=0)
+    except Exception as e:
+        logger.error(f"Bot error: {e}")
+        time.sleep(15)
+        main()
 
 if __name__ == "__main__":
-    from database.db import init_db
-    init_db()  # Ensure DB is created if not exists
-    import asyncio
-    asyncio.run(main())
+    init_db()
+    main()
